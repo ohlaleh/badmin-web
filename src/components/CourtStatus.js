@@ -82,41 +82,6 @@ export default function CourtStatus({ courts = [], onFinish = () => {}, onRollba
   return (
     <div className="sticky top-16 self-start">
       <div className="space-y-4 pr-2">
-      {/* Courts (bigger area) - moved from page.js */}
-      <div className="mb-2">
-        <div className="text-xl font-bold">รอบ: {round}</div>
-      </div>
-
-      <div className="flex flex-col sm:flex-row gap-3 sm:items-center">
-        <button
-          onClick={onGenerate}
-          className="bg-blue-500 text-white px-4 py-3 rounded-lg text-base w-full sm:w-auto hover:bg-blue-600 transition-colors duration-150"
-        >
-          🎲 สร้างคิวอัจฉริยะ
-        </button>
-
-        <button
-          onClick={onForceFill}
-          className="bg-red-500 text-white px-4 py-3 rounded-lg text-base w-full sm:w-auto hover:bg-red-600 transition-colors duration-150"
-        >
-          ⚠️ บังคับเติมคิว
-        </button>
-
-        <button
-          onClick={() => onToggleRules()}
-          className={
-            rulesStrict
-              ? 'px-4 py-3 rounded-lg text-base w-full sm:w-auto bg-green-600 text-white hover:bg-green-700 transition-colors duration-150'
-              : 'px-4 py-3 rounded-lg text-base w-full sm:w-auto bg-gray-200 text-gray-800 hover:bg-gray-300 transition-colors duration-150'
-          }
-          aria-pressed={rulesStrict}
-          title="สลับกฎการจับคู่ (เข้มงวด / ผ่อนปรน)"
-        >
-          {rulesStrict ? 'กฎ: เข้มงวด' : 'กฎ: ผ่อนปรน'}
-        </button>
-
-        {/* Removed 'โหลดสถานะ' button as requested */}
-      </div>
       {courts.map((c) => (
         <div key={c.id} className="w-full min-h-24 p-4 bg-white rounded-lg shadow-sm border border-gray-200">
           <div className="flex items-start gap-6 w-full">

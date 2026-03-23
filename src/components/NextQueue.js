@@ -1,5 +1,6 @@
 "use client";
 
+import React, { useState, useEffect, useRef } from "react";
 import PlayerCard from "./PlayerCard";
 
 // deterministic helper to map a string (id) to an index
@@ -13,6 +14,8 @@ function deterministicIndex(value, max) {
   return Math.abs(h) % max;
 }
 
+// (export moved to file end)
+
 function getBadgeClasses(id) {
   const palette = [
     { bg: 'bg-indigo-100', text: 'text-indigo-700' },
@@ -23,45 +26,93 @@ function getBadgeClasses(id) {
     { bg: 'bg-violet-100', text: 'text-violet-700' },
     { bg: 'bg-rose-100', text: 'text-rose-700' },
     { bg: 'bg-lime-100', text: 'text-lime-700' }
-  ]
-  let n = 0
-  if (typeof id === 'number' && Number.isFinite(id)) n = Math.abs(id)
-  else if (typeof id === 'string') n = Array.from(id).reduce((s, ch) => s + ch.charCodeAt(0), 0)
-  const idx = n % palette.length
-  return `${palette[idx].bg} ${palette[idx].text}`
+  ];
+  let n = 0;
+  if (typeof id === 'number' && Number.isFinite(id)) n = Math.abs(id);
+  else if (typeof id === 'string') n = Array.from(id).reduce((s, ch) => s + ch.charCodeAt(0), 0);
+  const idx = n % palette.length;
+
+  return `${palette[idx].bg} ${palette[idx].text}`;
 }
 
-import { useState } from "react";
+function groupHasPlayerOnCourt(group, courts) {
+  const busyPlayerIds = courts.flatMap(c => (c.players || []).map(p => p.id));
+  return group.some(player => busyPlayerIds.includes(player.id));
+}
 
-export default function NextQueue({
-  queue = [],
-  courts = [],
-  onAssign,
-  nextShow = 5,
-  availableCount = 0,
-  players = [], // pass all players from parent
-  onManualQueue, // callback to parent
-}) {
-  const [showManualModal, setShowManualModal] = useState(false);
-  const [manualSelected, setManualSelected] = useState([]);
-  
-  const availableCourts = courts.filter(
-    c => (c.players || []).length === 0
-  );
+function NextQueue(props) {
+  // Destructure all props needed
+  const {
+    queue = [],
+    courts = [],
+    round = 0,
+    onGenerate = () => {},
+    onRefill = () => {},
+    onForceFill = () => {},
+    rulesStrict = true,
+    onToggleRules = () => {},
+    onAssign = () => {},
+    players = [],
+    availableCount = 0,
+    nextShow = 0,
+    availableCourts = [],
+    setShowManualModal = () => {},
+    showManualModal = false,
+    manualSelected = [],
+    setManualSelected = () => {},
+    onManualQueue = () => {},
+  } = props;
 
-  // Split queue into auto and manual groups
+  // Local state fallbacks when parent doesn't control modal/selection
+  const [localShowManualModal, setLocalShowManualModal] = useState(false);
+  const showManualModalEffective = Object.prototype.hasOwnProperty.call(props, 'showManualModal') ? showManualModal : localShowManualModal;
+  const setShowManualModalEffective = Object.prototype.hasOwnProperty.call(props, 'setShowManualModal') ? setShowManualModal : setLocalShowManualModal;
+
+  const [localManualSelected, setLocalManualSelected] = useState([]);
+  const manualSelectedEffective = Object.prototype.hasOwnProperty.call(props, 'manualSelected') ? manualSelected : localManualSelected;
+  const setManualSelectedEffective = Object.prototype.hasOwnProperty.call(props, 'setManualSelected') ? setManualSelected : setLocalManualSelected;
+
+  // debug: render/mount counters to detect duplicate mounts or renders
+  const renderCountRef = useRef(0);
+  renderCountRef.current += 1;
+  useEffect(() => {
+    console.log('NextQueue mounted — render count', renderCountRef.current);
+    return () => console.log('NextQueue unmounted');
+  }, []);
+
   const manualGroups = queue.filter(g => g.manualGroup);
   const autoGroups = queue.filter(g => !g.manualGroup);
 
-  // Helper: check if any player in group is on court
-  function groupHasPlayerOnCourt(group) {
-    const busyPlayerIds = courts.flatMap(c => (c.players || []).map(p => p.id));
-    return group.some(player => busyPlayerIds.includes(player.id));
-  }
+  // quick lookups for manual modal: which players are on court or already queued
+  // map playerId -> courtId for players currently on a court
+  const busyMap = {};
+  (courts || []).forEach(c => {
+    (c.players || []).forEach(p => {
+      if (p && p.id !== undefined) busyMap[p.id] = c.id;
+    });
+  });
 
-  // Wrap onAssign to prevent assigning if any player is on court
+  // map playerId -> queue position (1-based index of the group in the queue)
+  const queuedMap = {};
+  (queue || []).forEach((g, groupIdx) => {
+    const playersInGroup = Array.isArray(g) ? g : (g && g.players ? g.players : []);
+    (playersInGroup || []).forEach(p => {
+      if (p && p.id !== undefined) queuedMap[p.id] = groupIdx + 1;
+    });
+  });
+
+  // Determine available courts: prefer explicit prop, otherwise derive from `courts`
+  const availableCourtsEffective = (availableCourts && availableCourts.length > 0)
+    ? availableCourts
+    : (courts || []).filter(c => {
+        const hasPlayers = Array.isArray(c.players) && c.players.length > 0;
+        const statusOccupied = (typeof c.status === 'string' && c.status === 'occupied');
+        // Court is available only if it has no players and is not marked occupied
+        return !hasPlayers && !statusOccupied;
+      });
+
   function handleAssign(courtId, groupIdx, group) {
-    if (groupHasPlayerOnCourt(group)) {
+    if (groupHasPlayerOnCourt(group, courts)) {
       if (typeof window !== 'undefined') {
         window.alert('มีผู้เล่นในกลุ่มนี้ที่อยู่ในคอร์ทแล้ว ไม่สามารถกำหนดซ้ำได้');
       }
@@ -70,13 +121,46 @@ export default function NextQueue({
     onAssign(courtId, groupIdx);
   }
 
+  // ...existing render code...
+
   return (
     <div>
+      {/* Queue Controls at the top */}
+      <div className="mb-2">
+        <div className="text-xl font-bold">รอบ: {round}</div>
+        <div className="flex flex-col sm:flex-row gap-3 sm:items-center mb-4">
+          <button
+            onClick={onGenerate}
+            className="bg-blue-500 text-white px-4 py-3 rounded-lg text-base w-full sm:w-auto hover:bg-blue-600 transition-colors duration-150"
+          >
+            🎲 สร้างคิวอัจฉริยะ
+          </button>
+          <button
+            onClick={onForceFill}
+            className="bg-red-500 text-white px-4 py-3 rounded-lg text-base w-full sm:w-auto hover:bg-red-600 transition-colors duration-150"
+          >
+            🔁 บังคับเติมคิว
+          </button>
+          <button
+            onClick={() => { console.log('NextQueue: rules button clicked (rulesStrict currently)', rulesStrict); console.trace('NextQueue: rules click trace'); onToggleRules(); }}
+            className={
+              rulesStrict
+                ? 'px-4 py-3 rounded-lg text-base w-full sm:w-auto bg-green-600 text-white hover:bg-green-700 transition-colors duration-150'
+                : 'px-4 py-3 rounded-lg text-base w-full sm:w-auto bg-gray-200 text-gray-800 hover:bg-gray-300 transition-colors duration-150'
+            }
+            aria-pressed={rulesStrict}
+            title="สลับกฎการจับคู่ (เข้มงวด / ผ่อนปรน)"
+          >
+            {rulesStrict ? 'กฎ: เข้มงวด' : 'กฎ: ผ่อนปรน'}
+          </button>
+        </div>
+      </div>
+
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-xl font-bold">คิวถัดไป</h2>
         <button
           className="px-3 py-1 rounded bg-blue-500 text-white hover:bg-blue-600 text-sm"
-          onClick={() => setShowManualModal(true)}
+          onClick={() => setShowManualModalEffective(true)}
         >
           เลือกผู้เล่นเอง
         </button>
@@ -94,55 +178,61 @@ export default function NextQueue({
       <div className="space-y-3">
 
       {/* Manual select modal */}
-      {showManualModal && typeof window !== 'undefined' && typeof document !== 'undefined' &&
+      {showManualModalEffective && typeof window !== 'undefined' && typeof document !== 'undefined' &&
         require('react-dom').createPortal(
           <div className="fixed inset-0 z-9999 flex items-start justify-center px-4 pt-12">
-            <div className="fixed inset-0 bg-black/40" onClick={() => setShowManualModal(false)} />
+            <div className="fixed inset-0 bg-black/40" onClick={() => setShowManualModalEffective(false)} />
             <div className="relative w-full max-w-md bg-white rounded-lg p-6 shadow-lg" onClick={e => e.stopPropagation()}>
               <h3 className="text-lg font-semibold mb-2">เลือกผู้เล่นเอง (เลือกครบ 4 คนเท่านั้น)</h3>
               <div className="max-h-64 overflow-y-auto mb-4 divide-y">
                 {(players || []).filter(Boolean).map((p) => (
                   <label
                     key={p.id}
-                    className={`flex items-center gap-3 py-2 cursor-pointer rounded transition-colors duration-100 ${manualSelected.includes(p.id) ? 'bg-blue-500 text-white' : ''}`}
+                    className={`flex items-center gap-3 py-2 cursor-pointer rounded transition-colors duration-100 ${manualSelectedEffective.includes(p.id) ? 'bg-blue-500 text-white' : ''}`}
                   >
                     <input
                       type="checkbox"
-                      checked={manualSelected.includes(p.id)}
-                      disabled={manualSelected.length >= 4 && !manualSelected.includes(p.id)}
+                      checked={manualSelectedEffective.includes(p.id)}
+                      disabled={manualSelectedEffective.length >= 4 && !manualSelectedEffective.includes(p.id)}
                       onChange={e => {
                         if (e.target.checked) {
-                          if (manualSelected.length < 4) setManualSelected(sel => [...sel, p.id]);
+                          if (manualSelectedEffective.length < 4) setManualSelectedEffective(sel => [...sel, p.id]);
                         } else {
-                          setManualSelected(sel => sel.filter(id => id !== p.id));
+                          setManualSelectedEffective(sel => sel.filter(id => id !== p.id));
                         }
                       }}
                       className="accent-blue-500 w-5 h-5"
                     />
                     <span className="flex-1 flex items-center gap-2">
                       {/* Avatar placeholder */}
-                      <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full font-bold text-base ${manualSelected.includes(p.id) ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-600'}`}>
+                      <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full font-bold text-base ${manualSelectedEffective.includes(p.id) ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-600'}`}>
                         {p.name?.[0] || '?'}
                       </span>
                       <span className="font-medium text-base">{p.name}</span>
-                      <span className={`ml-2 text-xs px-2 py-0.5 rounded border ${manualSelected.includes(p.id) ? 'bg-blue-400 text-white border-blue-300' : 'bg-gray-100 text-gray-700 border-gray-200'}`}>{p.level}</span>
-                      <span className={`ml-2 text-xs px-2 py-0.5 rounded border ${manualSelected.includes(p.id) ? 'bg-blue-400 text-white border-blue-300' : 'bg-gray-100 text-gray-700 border-gray-200'}`}>{p.gender === 'Male' ? 'ชาย' : 'หญิง'}</span>
+                      {busyMap[p.id] ? (
+                        <span className="ml-2 text-xs px-2 py-0.5 rounded bg-yellow-100 text-yellow-800">คอร์ท {busyMap[p.id]}</span>
+                      ) : null}
+                      {queuedMap[p.id] ? (
+                        <span className="ml-2 text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-800">คิว {queuedMap[p.id]}</span>
+                      ) : null}
+                      <span className={`ml-2 text-xs px-2 py-0.5 rounded border ${manualSelectedEffective.includes(p.id) ? 'bg-blue-400 text-white border-blue-300' : 'bg-gray-100 text-gray-700 border-gray-200'}`}>{p.level}</span>
+                      <span className={`ml-2 text-xs px-2 py-0.5 rounded border ${manualSelectedEffective.includes(p.id) ? 'bg-blue-400 text-white border-blue-300' : 'bg-gray-100 text-gray-700 border-gray-200'}`}>{p.gender === 'Male' ? 'ชาย' : 'หญิง'}</span>
                     </span>
                   </label>
                 ))}
               </div>
               <div className="flex justify-end gap-2 mt-4">
-                <button className="px-3 py-1 rounded border hover:bg-gray-100" onClick={() => setShowManualModal(false)}>ยกเลิก</button>
+                <button className="px-3 py-1 rounded border hover:bg-gray-100" onClick={() => setShowManualModalEffective(false)}>ยกเลิก</button>
                 <button
-                  className={`px-3 py-1 rounded bg-blue-600 text-white ${manualSelected.length !== 4 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-700'}`}
-                  disabled={manualSelected.length !== 4}
+                  className={`px-3 py-1 rounded bg-blue-600 text-white ${manualSelectedEffective.length !== 4 ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-700'}`}
+                  disabled={manualSelectedEffective.length !== 4}
                   onClick={() => {
-                    if (manualSelected.length === 4) {
+                    if (manualSelectedEffective.length === 4) {
                       if (typeof onManualQueue === 'function') {
-                        onManualQueue(manualSelected);
+                        onManualQueue(manualSelectedEffective);
                       }
-                      setShowManualModal(false);
-                      setManualSelected([]);
+                      setShowManualModalEffective(false);
+                      setManualSelectedEffective([]);
                     }
                   }}
                 >
@@ -165,7 +255,7 @@ export default function NextQueue({
             </div>
           );
         }
-        const groupHasBusy = groupHasPlayerOnCourt(group);
+        const groupHasBusy = groupHasPlayerOnCourt(group, courts);
         return (
           <div
             key={"auto-"+idx}
@@ -174,7 +264,7 @@ export default function NextQueue({
             <div>
               <div className="mb-2 flex items-center justify-between">
                 <div className="font-semibold">แมตช์ที่ #{idx + 1}</div>
-                {group && availableCourts.length === 0 && (
+                {group && availableCourtsEffective.length === 0 && (
                   <div className="text-gray-400 text-sm">รอคอร์ทว่าง</div>
                 )}
               </div>
@@ -187,33 +277,50 @@ export default function NextQueue({
               </div>
             </div>
             <div className="mt-2">
-              {availableCourts.length > 0 ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {availableCourts.map(court => (
-                    <button
-                      key={court.id}
-                      onClick={() => handleAssign(court.id, idx, group)}
-                      className={`bg-blue-500 text-white px-3 py-1 rounded text-sm inline-flex items-center justify-center gap-2 ${groupHasBusy ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-600'}`}
-                      aria-label={`กำหนดให้คอร์ท ${court.id}`}
-                      disabled={groupHasBusy}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {availableCourtsEffective.length > 0 ? availableCourtsEffective.map(court => (
+                  <button
+                    key={court.id}
+                    onClick={() => handleAssign(court.id, idx, group)}
+                    className={`bg-blue-500 text-white px-3 py-1 rounded text-sm inline-flex items-center justify-center gap-2 ${groupHasBusy ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-600'}`}
+                    aria-label={`กำหนดให้คอร์ท ${court.id}`}
+                    title={`Assign to court ${court.id}`}
+                    disabled={groupHasBusy}
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 20 20"
+                      fill="currentColor"
+                      className="w-4 h-4"
+                      aria-hidden="true"
                     >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        viewBox="0 0 20 20"
-                        fill="currentColor"
-                        className="w-4 h-4"
-                        aria-hidden="true"
-                      >
-                        <path fillRule="evenodd" d="M10.293 15.707a1 1 0 010-1.414L13.586 11H4a1 1 0 110-2h9.586l-3.293-3.293a1 1 0 011.414-1.414l5 5a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0z" clipRule="evenodd" />
-                      </svg>
-                      <span className="sr-only">กำหนดให้คอร์ท</span>
-                      <span className={`w-6 h-6 rounded-full text-[10px] flex items-center justify-center font-medium ${getBadgeClasses(court.id)}`}> 
-                        {court.id}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              ) : null}
+                      <path fillRule="evenodd" d="M10.293 15.707a1 1 0 010-1.414L13.586 11H4a1 1 0 110-2h9.586l-3.293-3.293a1 1 0 011.414-1.414l5 5a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                    </svg>
+                    <span className="sr-only">กำหนดให้คอร์ท</span>
+                    <span className={`w-6 h-6 rounded-full text-[10px] flex items-center justify-center font-medium ${getBadgeClasses(court.id)}`}> 
+                      {court.id}
+                    </span>
+                  </button>
+                )) : (
+                  <button
+                    className="bg-gray-300 text-gray-500 px-3 py-1 rounded text-sm inline-flex items-center justify-center gap-2 opacity-50 cursor-not-allowed"
+                    disabled
+                    title="No courts available"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 20 20"
+                      fill="currentColor"
+                      className="w-4 h-4"
+                      aria-hidden="true"
+                    >
+                      <path fillRule="evenodd" d="M10.293 15.707a1 1 0 010-1.414L13.586 11H4a1 1 0 110-2h9.586l-3.293-3.293a1 1 0 011.414-1.414l5 5a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                    </svg>
+                    <span className="sr-only">กำหนดให้คอร์ท</span>
+                    <span className="w-6 h-6 rounded-full text-[10px] flex items-center justify-center font-medium bg-gray-200 text-gray-500">?</span>
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         );
@@ -221,7 +328,7 @@ export default function NextQueue({
 
       {/* Render manual groups at the end */}
       {manualGroups.map((group, idx) => {
-        const groupHasBusy = groupHasPlayerOnCourt(group);
+        const groupHasBusy = groupHasPlayerOnCourt(group, courts);
         return (
           <div
             key={"manual-"+idx}
@@ -230,7 +337,7 @@ export default function NextQueue({
             <div>
               <div className="mb-2 flex items-center justify-between">
                 <div className="font-semibold text-blue-700">แมตช์ (จัดเอง Manual)</div>
-                {group && availableCourts.length === 0 && (
+                {group && availableCourtsEffective.length === 0 && (
                   <div className="text-gray-400 text-sm">รอคอร์ทว่าง</div>
                 )}
               </div>
@@ -243,33 +350,50 @@ export default function NextQueue({
               </div>
             </div>
             <div className="mt-2">
-              {availableCourts.length > 0 ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {availableCourts.map(court => (
-                    <button
-                      key={court.id}
-                      onClick={() => handleAssign(court.id, autoGroups.length + idx, group)}
-                      className={`bg-blue-500 text-white px-3 py-1 rounded text-sm inline-flex items-center justify-center gap-2 ${groupHasBusy ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-600'}`}
-                      aria-label={`กำหนดให้คอร์ท ${court.id}`}
-                      disabled={groupHasBusy}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {availableCourtsEffective.length > 0 ? availableCourtsEffective.map(court => (
+                  <button
+                    key={court.id}
+                    onClick={() => handleAssign(court.id, autoGroups.length + idx, group)}
+                    className={`bg-blue-500 text-white px-3 py-1 rounded text-sm inline-flex items-center justify-center gap-2 ${groupHasBusy ? 'opacity-50 cursor-not-allowed' : 'hover:bg-blue-600'}`}
+                    aria-label={`กำหนดให้คอร์ท ${court.id}`}
+                    title={`Assign to court ${court.id}`}
+                    disabled={groupHasBusy}
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 20 20"
+                      fill="currentColor"
+                      className="w-4 h-4"
+                      aria-hidden="true"
                     >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        viewBox="0 0 20 20"
-                        fill="currentColor"
-                        className="w-4 h-4"
-                        aria-hidden="true"
-                      >
-                        <path fillRule="evenodd" d="M10.293 15.707a1 1 0 010-1.414L13.586 11H4a1 1 0 110-2h9.586l-3.293-3.293a1 1 0 011.414-1.414l5 5a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0z" clipRule="evenodd" />
-                      </svg>
-                      <span className="sr-only">กำหนดให้คอร์ท</span>
-                      <span className={`w-6 h-6 rounded-full text-[10px] flex items-center justify-center font-medium ${getBadgeClasses(court.id)}`}> 
-                        {court.id}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              ) : null}
+                      <path fillRule="evenodd" d="M10.293 15.707a1 1 0 010-1.414L13.586 11H4a1 1 0 110-2h9.586l-3.293-3.293a1 1 0 011.414-1.414l5 5a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                    </svg>
+                    <span className="sr-only">กำหนดให้คอร์ท</span>
+                    <span className={`w-6 h-6 rounded-full text-[10px] flex items-center justify-center font-medium ${getBadgeClasses(court.id)}`}> 
+                      {court.id}
+                    </span>
+                  </button>
+                )) : (
+                  <button
+                    className="bg-gray-300 text-gray-500 px-3 py-1 rounded text-sm inline-flex items-center justify-center gap-2 opacity-50 cursor-not-allowed"
+                    disabled
+                    title="No courts available"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 20 20"
+                      fill="currentColor"
+                      className="w-4 h-4"
+                      aria-hidden="true"
+                    >
+                      <path fillRule="evenodd" d="M10.293 15.707a1 1 0 010-1.414L13.586 11H4a1 1 0 110-2h9.586l-3.293-3.293a1 1 0 011.414-1.414l5 5a1 1 0 010 1.414l-5 5a1 1 0 01-1.414 0z" clipRule="evenodd" />
+                    </svg>
+                    <span className="sr-only">กำหนดให้คอร์ท</span>
+                    <span className="w-6 h-6 rounded-full text-[10px] flex items-center justify-center font-medium bg-gray-200 text-gray-500">?</span>
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         );
@@ -278,3 +402,5 @@ export default function NextQueue({
     </div>
   );
 }
+
+export default NextQueue;

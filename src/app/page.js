@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import PlayerList from "@/components/PlayerList";
 import CourtStatus from "@/components/CourtStatus";
 import NextQueue from "@/components/NextQueue";
@@ -38,6 +38,32 @@ export default function Page() {
   const [resetting, setResetting] = useState(false);
   const [showFinishModal, setShowFinishModal] = useState(false);
   const [finishTargetCourt, setFinishTargetCourt] = useState(null);
+  const pageToggleLastRef = useRef(0);
+  const forceFillLastRef = useRef(0);
+  const refillLastRef = useRef(0);
+  const guardedToggleRules = useCallback(() => {
+    const now = Date.now();
+    if (!pageToggleLastRef.current) pageToggleLastRef.current = 0;
+    if (now - pageToggleLastRef.current < 300) {
+      console.log('Ignored duplicate toggle (dev double-invoke)');
+      return;
+    }
+    pageToggleLastRef.current = now;
+    console.log('NextQueue: toggle rules (was)', rulesStrict);
+    setRulesStrict(s => !s);
+  }, [rulesStrict]);
+
+  const guardedForceFill = () => {
+    const now = Date.now();
+    if (!forceFillLastRef.current) forceFillLastRef.current = 0;
+    if (now - forceFillLastRef.current < 300) {
+      console.log('Ignored duplicate forceFill (dev double-invoke)');
+      return;
+    }
+    forceFillLastRef.current = now;
+    console.log('Page: guardedForceFill invoked');
+    forceFillQueue();
+  };
 
 
   // ====================================================
@@ -125,13 +151,13 @@ export default function Page() {
   // SMART MATCHMAKING
   // ====================================================
   function generateNextQueue() {
-    // console.log('SMART MATCHMAKING...generateNextQueue')
+    console.log('SMART MATCHMAKING...generateNextQueue')
     const busyIds = courts.flatMap(c =>
       (c.players || []).map(p => p.id)
     );
 
-    // available players
-    let available = players.filter(p => !busyIds.includes(p.id) && p.pay_status === 'active');
+    // available players — exclude those currently on court and those marked stopped
+    let available = players.filter(p => !busyIds.includes(p.id) && p.play_status !== 'stopped');
 
     // apply cooldown rule when strict
     if (rulesStrict) {
@@ -202,6 +228,8 @@ export default function Page() {
 
   // Refill (append) nextQueue up to NEXT_SHOW without replacing existing entries
   function refillNextQueue() {
+    console.log('Refill (append) nextQueue ');
+    
     setNextQueue(prev => {
       if (prev.length >= effectiveNextShow) return prev;
 
@@ -836,6 +864,10 @@ export default function Page() {
 
   // Auto-refill Next queue whenever players/courts/round change
   useEffect(() => {
+    // guard against duplicate rapid invocations (React StrictMode mounts twice in dev)
+    const now = Date.now();
+    if (now - (refillLastRef.current || 0) < 300) return;
+    refillLastRef.current = now;
     refillNextQueue();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [players, courts, round]);
@@ -917,52 +949,59 @@ export default function Page() {
         </div>
       </header>
 
-      <main className="grid grid-cols-1 md:grid-cols-[3fr_4fr_3fr] gap-3 md:gap-4 p-2 md:p-3">
-
-        {/* Left: Player list (sticky on tablet) */}
-        <div className="md:col-span-1 md:sticky md:top-4 min-w-0">
-          <PlayerList players={sortedPlayers} nextQueue={nextQueue} courts={courts} onAdd={handleAddPlayer} loadPlayers={loadPlayers} generateNextQueue={generateNextQueue} />
+      <main className="flex flex-col gap-2 p-2 md:p-4">
+        {/* Row 1: 4 columns for each court */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+          {courts.map((court, idx) => (
+            <CourtStatus
+              key={court.id || idx}
+              courts={[court]}
+              onFinish={(cid, manual) => {
+                if (manual) requestFinishCourt(cid);
+                else finishCourt(cid, manual);
+              }}
+              onRollback={rollbackCourt}
+              round={round}
+              onGenerate={generateNextQueue}
+              onForceFill={guardedForceFill}
+              rulesStrict={rulesStrict}
+                // guard against duplicate rapid calls (React StrictMode may double-invoke handlers in dev)
+                onToggleRules={guardedToggleRules}
+              onReloadCourts={fetchCourts}
+            />
+          ))}
         </div>
-
-        <div className="md:col-span-1 space-y-4 min-w-0">
-          <CourtStatus
-            courts={courts}
-            onFinish={(cid, manual) => {
-              if (manual) requestFinishCourt(cid);
-              else finishCourt(cid, manual);
-            }}
-            onRollback={rollbackCourt}
-            round={round}
-            onGenerate={generateNextQueue}
-            onForceFill={forceFillQueue}
-            rulesStrict={rulesStrict}
-            onToggleRules={() => setRulesStrict(s => !s)}
-            onReloadCourts={fetchCourts}
-          />
+        {/* Row 2: 3 columns — PlayerList 1/3, NextQueue 2/3 */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+          <div className="md:col-span-2">
+            <PlayerList players={sortedPlayers} nextQueue={nextQueue} courts={courts} onAdd={handleAddPlayer} loadPlayers={loadPlayers} generateNextQueue={generateNextQueue} />
+          </div>
+          <div className="md:col-span-2">
+            <NextQueue
+              queue={[
+                ...nextQueue.filter(g => !g.manualGroup).slice(0, effectiveNextShow),
+                ...nextQueue.filter(g => g.manualGroup)
+              ]}
+              courts={courts}
+              onAssign={assignNextToCourt}
+              onRefill={refillNextQueue}
+              onGenerate={generateNextQueue}
+              onForceFill={guardedForceFill}
+              onToggleRules={guardedToggleRules}
+              rulesStrict={rulesStrict}
+              nextShow={effectiveNextShow}
+              availableCount={availableCount}
+              players={players}
+              onManualQueue={ids => {
+                // Allow manual group to be added regardless of court/queue status
+                const selected = players.filter(p => ids.includes(p.id));
+                if (selected.length === 4) {
+                  setNextQueue(prev => [...prev, Object.assign(Array.from(selected), { manualGroup: true })]);
+                }
+              }}
+            />
+          </div>
         </div>
-
-        {/* Right: Next queue (sticky) */}
-        <div className="md:col-span-1 md:sticky md:top-4 min-w-0">
-          <NextQueue
-            queue={[
-              ...nextQueue.filter(g => !g.manualGroup).slice(0, effectiveNextShow),
-              ...nextQueue.filter(g => g.manualGroup)
-            ]}
-            courts={courts}
-            onAssign={assignNextToCourt}
-            nextShow={effectiveNextShow}
-            availableCount={availableCount}
-            players={players}
-            onManualQueue={ids => {
-              // Allow manual group to be added regardless of court/queue status
-              const selected = players.filter(p => ids.includes(p.id));
-              if (selected.length === 4) {
-                setNextQueue(prev => [...prev, Object.assign(Array.from(selected), { manualGroup: true })]);
-              }
-            }}
-          />
-        </div>
-
       </main>
     </div>
   );
