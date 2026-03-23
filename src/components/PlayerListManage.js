@@ -1,39 +1,28 @@
 "use client"
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import Image from 'next/image'
+import { getLevelClasses } from '@/lib/normalizers'
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || '';
-
-function getLevelClasses(player) {
-  const level = (player && typeof player.level === 'string') ? player.level : (player && (player.level || player.rank || player.skill) ? String(player.level) : 'N-');
-  let nameBgClass = 'bg-slate-100 text-slate-800';
-  let dotClass = 'bg-slate-400';
-  if (level === 'N-') {
-    nameBgClass = 'bg-amber-100 text-amber-800';
-    dotClass = 'bg-amber-500';
-  } else if (level === 'N') {
-    nameBgClass = 'bg-blue-100 text-blue-800';
-    dotClass = 'bg-blue-500';
-  } else if (level === 'S') {
-    nameBgClass = 'bg-purple-100 text-purple-800';
-    dotClass = 'bg-purple-500';
-  } else if (level === 'P') {
-    nameBgClass = 'bg-yellow-100 text-yellow-800';
-    dotClass = 'bg-yellow-500';
-  }
-  return { nameBgClass, dotClass };
-}
 
 export default function PlayerListManage() {
   const [players, setPlayers] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
 
-  // form state
+  // Form states
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState(null)
-  const [form, setForm] = useState({ name: '', gender: 'Male', level: 'N-', matches: 0, last_played_round: -10, play_status: 'active', teammates: {} })
+  const [form, setForm] = useState({ 
+    name: '', 
+    gender: 'Male', 
+    level: 'N-', 
+    matches: 0, 
+    last_played_round: -10, 
+    play_status: 'active', 
+    teammates: {} 
+  })
   const [filter, setFilter] = useState('')
 
   useEffect(() => {
@@ -47,11 +36,12 @@ export default function PlayerListManage() {
       const res = await fetch(`${API_BASE}/api/players`)
       if (!res.ok) throw new Error('Failed to load')
       const data = await res.json()
+      // รองรับทั้ง { players: [] } และ []
       const list = Array.isArray(data.players) ? data.players : (Array.isArray(data) ? data : [])
       setPlayers(list)
     } catch (err) {
       console.error(err)
-      setError('ไม่สามารถโหลดผู้เล่นได้')
+      setError('ไม่สามารถโหลดข้อมูลผู้เล่นได้')
     } finally {
       setLoading(false)
     }
@@ -59,7 +49,7 @@ export default function PlayerListManage() {
 
   function openCreate() {
     setEditing(null)
-    setForm({ name: '', gender: 'Male', level: 'N-' })
+    setForm({ name: '', gender: 'Male', level: 'N-', matches: 0, last_played_round: -1, play_status: 'active', teammates: {} })
     setShowForm(true)
   }
 
@@ -69,9 +59,9 @@ export default function PlayerListManage() {
       name: p.name || '',
       gender: p.gender || 'Male',
       level: p.level || 'N-',
-      matches: typeof p.matches === 'number' ? p.matches : Number(p.matches || 0),
-      last_played_round: typeof p.last_played_round === 'number' ? p.last_played_round : Number(p.last_played_round ?? (p.lastPlayedRound ?? -10)),
-      play_status: p.play_status ?? p.playStatus ?? 'active',
+      matches: Number(p.matches || 0),
+      last_played_round: Number(p.last_played_round ?? -1),
+      play_status: p.play_status || 'active',
       teammates: (p.teammates && typeof p.teammates === 'object') ? p.teammates : {},
     })
     setShowForm(true)
@@ -79,195 +69,254 @@ export default function PlayerListManage() {
 
   async function submitForm(e) {
     e.preventDefault()
+    
+    // 1. Validate JSON สำหรับ teammates
+    let finalTeammates = {}
+    if (typeof form.teammates === 'string') {
+      try {
+        finalTeammates = JSON.parse(form.teammates || '{}')
+      } catch (err) {
+        alert('รูปแบบ JSON เพื่อนร่วมทีมไม่ถูกต้อง (ตรวจสอบเครื่องหมายคำพูด หรือวงเล็บ)')
+        return
+      }
+    } else {
+      finalTeammates = form.teammates
+    }
+
     try {
       const payload = {
-        name: form.name,
-        gender: form.gender,
-        level: form.level,
-        matches: Number(form.matches || 0),
-        last_played_round: Number(form.last_played_round ?? -10),
-        play_status: form.play_status || 'active',
-        teammates: typeof form.teammates === 'string' ? (JSON.parse(form.teammates || '{}')) : (form.teammates || {}),
+        ...form,
+        matches: Number(form.matches),
+        last_played_round: Number(form.last_played_round),
+        teammates: finalTeammates
       }
 
-      if (editing) {
-        const res = await fetch(`${API_BASE}/api/players/${editing.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        })
-        if (!res.ok) throw new Error('Update failed')
-        const updated = await res.json()
-        setPlayers(prev => prev.map(p => p.id === editing.id ? (updated.player || updated) : p))
-      } else {
-        const res = await fetch(`${API_BASE}/api/players`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        })
-        if (!res.ok) throw new Error('Create failed')
-        const created = await res.json()
-        setPlayers(prev => [ (created.player || created), ...prev ])
-      }
+      const url = editing ? `${API_BASE}/api/players/${editing.id}` : `${API_BASE}/api/players`
+      const method = editing ? 'PUT' : 'POST'
+
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+
+      if (!res.ok) throw new Error('บันทึกไม่สำเร็จ')
+      
+      await fetchPlayers() // รีโหลดข้อมูลเพื่อให้สถิติ Sync กับ Backend
       setShowForm(false)
       setEditing(null)
-      setForm({ name: '', gender: 'Male', level: 'N-', matches: 0, last_played_round: -10, play_status: 'active', teammates: {} })
     } catch (err) {
       console.error(err)
-      alert('เกิดข้อผิดพลาดขณะบันทึก')
+      alert(err.message)
     }
   }
 
   async function deletePlayer(p) {
-    if (!confirm(`ลบผู้เล่น "${p.name}" หรือไม่ ?`)) return
+    if (!confirm(`ยืนยันการลบผู้เล่น "${p.name}"? ข้อมูลสถิติจะหายไปทั้งหมด`)) return
     try {
       const res = await fetch(`${API_BASE}/api/players/${p.id}`, { method: 'DELETE' })
-      if (!res.ok) throw new Error('Delete failed')
+      if (!res.ok) throw new Error('ลบไม่สำเร็จ')
       setPlayers(prev => prev.filter(x => x.id !== p.id))
     } catch (err) {
       console.error(err)
-      alert('ไม่สามารถลบผู้เล่นได้')
+      alert('เกิดข้อผิดพลาดในการลบ')
     }
   }
 
-  // computed visible players by filter
-  const _q = (filter || '').trim().toLowerCase()
-  const visiblePlayers = Array.isArray(players)
-    ? players.filter(p => !_q || (p.name && String(p.name).toLowerCase().includes(_q)))
-    : []
+  // Filter Logic
+  const visiblePlayers = useMemo(() => {
+    const _q = filter.trim().toLowerCase()
+    return players.filter(p => !_q || p.name?.toLowerCase().includes(_q))
+  }, [players, filter])
 
   return (
-    <div className="max-w-4xl mx-auto p-4">
-      <div className="flex items-center justify-between mb-4">
-        <h1 className="text-2xl font-bold">จัดการผู้เล่น</h1>
+    <div className="max-w-6xl mx-auto p-6 bg-gray-50 min-h-screen">
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
         <div>
-          <button onClick={openCreate} className="px-3 py-2 bg-blue-600 text-white rounded">ผู้เล่นใหม่</button>
+          <h1 className="text-2xl font-black text-gray-800">จัดการรายชื่อผู้เล่น</h1>
+          <p className="text-sm text-gray-500">จัดการข้อมูลระดับฝีมือ และสถิติแมตช์ย้อนหลัง</p>
+        </div>
+        <button 
+          onClick={openCreate} 
+          className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl transition-all shadow-lg shadow-indigo-200"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
+            <path d="M8 9a3 3 0 100-6 3 3 0 000 6zM8 11a6 6 0 016 6H2a6 6 0 016-6zM16 7a1 1 0 10-2 0v1h-1a1 1 0 100 2h1v1a1 1 0 102 0v-1h1a1 1 0 100-2h-1V7z" />
+          </svg>
+          เพิ่มผู้เล่นใหม่
+        </button>
+      </div>
+
+      <div className="mb-6">
+        <div className="relative max-w-sm">
+          <input
+            value={filter}
+            onChange={e => setFilter(e.target.value)}
+            placeholder="ค้นหาชื่อ..."
+            className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-sm shadow-sm focus:ring-2 focus:ring-indigo-500 transition-all outline-none"
+          />
+          <div className="absolute right-3 top-2.5 text-gray-400">
+            <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+          </div>
         </div>
       </div>
 
-      {loading && <div>กำลังโหลด...</div>}
-      {error && <div className="text-red-600">{error}</div>}
-
-      <div className="mb-3">
-        <input
-          aria-label="ค้นหาผู้เล่น"
-          value={filter}
-          onChange={e => setFilter(e.target.value)}
-          placeholder="ค้นหาผู้เล่น ชื่อ..."
-          className="w-full md:w-1/3 border rounded px-3 py-2 text-sm"
-        />
-      </div>
-
-      <div className="bg-white shadow rounded overflow-hidden">
-        <table className="w-full text-left">
-          <thead className="bg-gray-50">
-            <tr>
-              <th className="p-3 text-sm">#</th>
-              <th className="p-3 text-sm">ชื่อ</th>
-              <th className="p-3 text-sm">เพศ</th>
-              <th className="p-3 text-sm">ระดับ</th>
-              <th className="p-3 text-sm">จำนวนแมตช์</th>
-              <th className="p-3 text-sm">รอบล่าสุด</th>
-              <th className="p-3 text-sm">สถานะ</th>
-              <th className="p-3 text-sm">เพื่อนร่วมทีม</th>
-              <th className="p-3 text-sm">การดำเนินการ</th>
-            </tr>
-          </thead>
-          <tbody>
-            {visiblePlayers.map((p, idx) => (
-              <tr key={p.id} className="border-t">
-                <td className="p-3 align-middle text-sm">{idx + 1}</td>
-                <td className="p-3 align-middle text-sm flex items-center gap-2">
-                  <div className="relative inline-flex items-center justify-center w-8 h-8 rounded-full">
-                    <div className={`w-full h-full flex items-center justify-center rounded-full overflow-hidden ${getLevelClasses(p).dotClass} text-white`}>
-                      {p.avatar ? (
-                        <Image src={p.avatar} alt={p.name || 'รูปประจำตัว'} width={20} height={20} className="w-4 h-4 rounded-full object-contain" />
-                      ) : (
-                        <Image src={`/avatars/${String(p?.gender || 'male').toLowerCase() === 'female' ? 'female' : 'male'}.svg`} alt="รูปประจำตัว" width={20} height={20} className="w-4 h-4 object-contain" />
-                      )}
-                    </div>
-                    <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full ring-2 ring-white ${getLevelClasses(p).dotClass}`} />
-                  </div>
-                  <div>
-                    <div className="font-medium">{p.name}</div>
-                    <div className="text-xs text-gray-500">แมตช์: {p.matches ?? 0}</div>
-                  </div>
-                </td>
-                <td className="p-3 align-middle text-sm">
-                  <span className={`inline-block text-xs px-2 py-0.5 rounded-full font-medium ${getLevelClasses(p).nameBgClass}`}>
-                    {p.gender === 'Male' ? 'ชาย' : (p.gender === 'Female' ? 'หญิง' : p.gender)}
-                  </span>
-                </td>
-                <td className="p-3 align-middle text-sm">{p.level}</td>
-                <td className="p-3 align-middle text-sm">{p.matches ?? 0}</td>
-                <td className="p-3 align-middle text-sm">{p.last_played_round ?? p.lastPlayedRound ?? '-'}</td>
-                <td className="p-3 align-middle text-sm">{p.play_status ?? p.playStatus ?? '-'}</td>
-                <td className="p-3 align-middle text-sm">{p.teammates ? Object.keys(p.teammates).length : 0}</td>
-                <td className="p-3 align-middle text-sm">
-                  <div className="flex gap-2">
-                    <button onClick={() => openEdit(p)} className="px-2 py-1 bg-yellow-400 text-black rounded text-sm">แก้ไข</button>
-                    <button onClick={() => deletePlayer(p)} className="px-2 py-1 bg-red-500 text-white rounded text-sm">ลบ</button>
-                  </div>
-                </td>
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-gray-50/50 border-b border-gray-100">
+                <th className="p-4 text-xs font-bold text-gray-400 uppercase">ผู้เล่น</th>
+                <th className="p-4 text-xs font-bold text-gray-400 uppercase text-center">ระดับ</th>
+                <th className="p-4 text-xs font-bold text-gray-400 uppercase text-center">แมตช์</th>
+                <th className="p-4 text-xs font-bold text-gray-400 uppercase text-center">รอบล่าสุด</th>
+                <th className="p-4 text-xs font-bold text-gray-400 uppercase text-center">สถานะ</th>
+                <th className="p-4 text-xs font-bold text-gray-400 uppercase">ดำเนินการ</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-gray-50">
+              {visiblePlayers.map((p) => (
+                <tr key={p.id} className="hover:bg-gray-50/50 transition-colors">
+                  <td className="p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="relative w-10 h-10 rounded-full border-2 border-white shadow-sm overflow-hidden bg-gray-100 p-0.5">
+                        <div className="relative w-full h-full rounded-full overflow-hidden">
+                          <Image
+                            src={p.avatar || `/avatars/${p.gender?.toLowerCase() === 'female' ? 'female' : 'male'}.svg`}
+                            alt={p.name}
+                            fill
+                            className="object-cover"
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <div className="font-bold text-gray-800">{p.name}</div>
+                        <div className="text-[10px] text-gray-400 uppercase font-medium">{p.gender === 'Male' ? 'ชาย' : 'หญิง'}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="p-4 text-center">
+                    <span className={`px-2.5 py-1 rounded-lg text-xs font-black ${
+                      p.level === 'P' ? 'bg-purple-100 text-purple-600' :
+                      p.level === 'S' ? 'bg-rose-100 text-rose-600' :
+                      p.level === 'N' ? 'bg-emerald-100 text-emerald-600' : 'bg-gray-100 text-gray-600'
+                    }`}>
+                      {p.level}
+                    </span>
+                  </td>
+                  <td className="p-4 text-center">
+                    <span className="font-mono font-bold text-gray-700">{p.matches ?? 0}</span>
+                  </td>
+                  <td className="p-4 text-center">
+                    <span className="text-sm text-gray-500">{p.last_played_round > -1 ? `#${p.last_played_round}` : '-'}</span>
+                  </td>
+                  <td className="p-4 text-center">
+                    <div className="flex items-center justify-center gap-1.5">
+                      <span className={`w-2 h-2 rounded-full ${p.play_status === 'active' ? 'bg-emerald-500' : 'bg-gray-300'}`} />
+                      <span className={`text-xs font-medium ${p.play_status === 'active' ? 'text-emerald-600' : 'text-gray-400'}`}>
+                        {p.play_status === 'active' ? 'ปกติ' : 'หยุด'}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="p-4">
+                    <div className="flex gap-2">
+                      <button onClick={() => openEdit(p)} className="p-2 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
+                          <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
+                        </svg>
+                      </button>
+                      <button onClick={() => deletePlayer(p)} className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
+                          <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+                        </svg>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
-      {/* Simple modal/form */}
+      {/* Modern Modal Form */}
       {showForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
-          <div className="fixed inset-0 bg-black/40" onClick={() => setShowForm(false)} />
-          <form onSubmit={submitForm} className="relative bg-white rounded p-6 shadow max-w-md w-full" onClick={e => e.stopPropagation()}>
-            <h2 className="text-lg font-semibold mb-3">{editing ? 'แก้ไขผู้เล่น' : 'ผู้เล่นใหม่'}</h2>
-            <div className="mb-2">
-              <label className="block text-sm text-gray-700">ชื่อ</label>
-              <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className="w-full border px-2 py-1 rounded" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" onClick={() => setShowForm(false)} />
+          <form 
+            onSubmit={submitForm} 
+            className="relative bg-white rounded-3xl shadow-2xl max-w-lg w-full overflow-hidden animate-in fade-in zoom-in duration-200"
+          >
+            <div className="p-6 border-b border-gray-100 flex justify-between items-center">
+              <h2 className="text-xl font-black text-gray-800">{editing ? 'แก้ไขข้อมูลผู้เล่น' : 'เพิ่มผู้เล่นใหม่'}</h2>
+              <button type="button" onClick={() => setShowForm(false)} className="text-gray-400 hover:text-gray-600">
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
             </div>
-            <div className="mb-2 grid grid-cols-2 gap-3">
+
+            <div className="p-6 space-y-4">
               <div>
-                <label className="block text-sm text-gray-700">เพศ</label>
-                <select value={form.gender} onChange={e => setForm(f => ({ ...f, gender: e.target.value }))} className="w-full border px-2 py-1 rounded">
-                  <option value="Male">ชาย</option>
-                  <option value="Female">หญิง</option>
-                </select>
+                <label className="block text-xs font-bold text-gray-400 uppercase mb-1">ชื่อผู้เล่น</label>
+                <input required value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className="w-full border-gray-200 border rounded-xl px-4 py-2 outline-none focus:ring-2 focus:ring-indigo-500" />
               </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-gray-400 uppercase mb-1">เพศ</label>
+                  <select value={form.gender} onChange={e => setForm(f => ({ ...f, gender: e.target.value }))} className="w-full border-gray-200 border rounded-xl px-4 py-2 outline-none focus:ring-2 focus:ring-indigo-500">
+                    <option value="Male">ชาย</option>
+                    <option value="Female">หญิง</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-400 uppercase mb-1">ระดับฝีมือ</label>
+                  <select value={form.level} onChange={e => setForm(f => ({ ...f, level: e.target.value }))} className="w-full border-gray-200 border rounded-xl px-4 py-2 outline-none focus:ring-2 focus:ring-indigo-500">
+                    <option value="N-">N- (เริ่มต้น)</option>
+                    <option value="N">N (ทั่วไป)</option>
+                    <option value="S">S (เก่ง)</option>
+                    <option value="P">P (โปร)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-gray-400 uppercase mb-1">แมตช์รวม</label>
+                  <input type="number" value={form.matches} onChange={e => setForm(f => ({ ...f, matches: e.target.value }))} className="w-full border-gray-200 border rounded-xl px-4 py-2 outline-none" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-400 uppercase mb-1">รอบล่าสุด</label>
+                  <input type="number" value={form.last_played_round} onChange={e => setForm(f => ({ ...f, last_played_round: e.target.value }))} className="w-full border-gray-200 border rounded-xl px-4 py-2 outline-none" />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-gray-400 uppercase mb-1">สถานะ</label>
+                  <select value={form.play_status} onChange={e => setForm(f => ({ ...f, play_status: e.target.value }))} className="w-full border-gray-200 border rounded-xl px-4 py-2 outline-none">
+                    <option value="active">ปกติ</option>
+                    <option value="stopped">หยุดเล่น</option>
+                  </select>
+                </div>
+              </div>
+
               <div>
-                <label className="block text-sm text-gray-700">ระดับ</label>
-                <select value={form.level} onChange={e => setForm(f => ({ ...f, level: e.target.value }))} className="w-full border px-2 py-1 rounded">
-                  <option value="N-">N-</option>
-                  <option value="N">N</option>
-                  <option value="S">S</option>
-                  <option value="P">P</option>
-                </select>
+                <label className="block text-xs font-bold text-gray-400 uppercase mb-1">ประวัติเพื่อนร่วมทีม (JSON)</label>
+                <textarea 
+                  value={typeof form.teammates === 'string' ? form.teammates : JSON.stringify(form.teammates)} 
+                  onChange={e => setForm(f => ({ ...f, teammates: e.target.value }))} 
+                  placeholder='{"12": 1, "45": 2}'
+                  className="w-full border-gray-200 border rounded-xl px-4 py-2 text-xs font-mono h-24 outline-none focus:ring-2 focus:ring-indigo-500" 
+                />
               </div>
             </div>
-            <div className="mb-2 grid grid-cols-3 gap-3">
-              <div>
-                <label className="block text-sm text-gray-700">จำนวนแมตช์</label>
-                <input type="number" value={form.matches} onChange={e => setForm(f => ({ ...f, matches: Number(e.target.value) }))} className="w-full border px-2 py-1 rounded" />
-              </div>
-              <div>
-                <label className="block text-sm text-gray-700">รอบล่าสุดที่เล่น</label>
-                <input type="number" value={form.last_played_round} onChange={e => setForm(f => ({ ...f, last_played_round: Number(e.target.value) }))} className="w-full border px-2 py-1 rounded" />
-              </div>
-              <div>
-                <label className="block text-sm text-gray-700">สถานะการเล่น</label>
-                <select value={form.play_status} onChange={e => setForm(f => ({ ...f, play_status: e.target.value }))} className="w-full border px-2 py-1 rounded">
-                  <option value="active">ปกติ</option>
-                  <option value="stopped">หยุดชั่วคราว</option>
-                </select>
-              </div>
-            </div>
-            <div className="mb-2">
-              <label className="block text-sm text-gray-700">เพื่อนร่วมทีม (ออบเจ็กต์ JSON)</label>
-              <textarea value={typeof form.teammates === 'string' ? form.teammates : JSON.stringify(form.teammates || {})} onChange={e => setForm(f => ({ ...f, teammates: e.target.value }))} placeholder='{"123":1, "456":2}' className="w-full border px-2 py-1 rounded h-24" />
-              <div className="text-xs text-gray-400 mt-1">ระบุเพื่อนร่วมทีมเป็นออบเจ็กต์ JSON ที่แมป playerId ไปยังจำนวน ตัวอย่าง: {'{"123":1}'}</div>
-            </div>
-            <div className="flex justify-end gap-2 mt-4">
-              <button type="button" onClick={() => setShowForm(false)} className="px-3 py-1 border rounded">ยกเลิก</button>
-              <button type="submit" className="px-3 py-1 bg-blue-600 text-white rounded">บันทึก</button>
+
+            <div className="p-6 bg-gray-50 flex justify-end gap-3">
+              <button type="button" onClick={() => setShowForm(false)} className="px-6 py-2 text-gray-500 font-bold hover:text-gray-700 transition-colors">ยกเลิก</button>
+              <button type="submit" className="px-8 py-2 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 shadow-lg shadow-indigo-100 transition-all">
+                บันทึกข้อมูล
+              </button>
             </div>
           </form>
         </div>

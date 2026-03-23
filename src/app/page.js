@@ -7,6 +7,8 @@ import CourtStatus from "@/components/CourtStatus";
 import NextQueue from "@/components/NextQueue";
 import Toasts from "@/components/Toasts";
 import showToast from "@/lib/toast";
+import { normalizePlayer, normalizeCourts, normalizeQueue } from '@/lib/normalizers'
+import { buildGroups, appendGroups, forceFillAppendGroups, hasRepeatTeammate } from '@/lib/matchmaker'
 
 const COURT_COUNT = 2;
 const COOLDOWN = 1;
@@ -71,40 +73,7 @@ export default function Page() {
   // API base (allow override via NEXT_PUBLIC_API_URL)
   const API_BASE = (typeof process !== 'undefined' && process.env && process.env.NEXT_PUBLIC_API_URL) || 'http://127.0.0.1:3333';
 
-  // Normalizers: ensure server-provided shapes are safe for the UI
-  const normalizePlayer = useCallback((p) => {
-    if (!p) return null;
-    return {
-      id: p.id,
-      name: p.name ?? p.full_name ?? p.nickname ?? String(p.id),
-      matches: Number(p.matches ?? 0),
-      lastPlayedRound: Number(p.lastPlayedRound ?? p.last_played_round ?? -10),
-      gender: p.gender ?? 'Male',
-      teammates: (p.teammates && typeof p.teammates === 'object') ? p.teammates : (p.teammate_counts && typeof p.teammate_counts === 'object' ? p.teammate_counts : {}),
-      level: p.level ?? p.rank ?? p.skill ?? 0,
-      play_status: p.play_status,
-    };
-  }, []);
-
-  const normalizeCourts = useCallback((courtsData) => {
-    if (!Array.isArray(courtsData)) return Array.from({ length: COURT_COUNT }, (_, i) => ({ id: i + 1, players: [], finished: true, status: 'available', current_players: [] }));
-    return courtsData.map((c, idx) => ({
-      id: c?.id ?? (idx + 1),
-      name: c?.name ?? `Court ${c?.id ?? (idx + 1)}`,
-      status: c?.status ?? 'available',
-      current_players: Array.isArray(c?.current_players) ? c.current_players : [],
-      players: Array.isArray(c?.players) ? c.players.map(normalizePlayer).filter(Boolean) : [],
-      finished: typeof c?.finished === 'boolean' ? c.finished : Boolean(Number(c?.finished)),
-      created_at: c?.created_at,
-      updated_at: c?.updated_at,
-      match_id: c?.match_id,
-    }));
-  }, [normalizePlayer]);
-
-  const normalizeQueue = useCallback((queueData) => {
-    if (!Array.isArray(queueData)) return [];
-    return queueData.map(g => Array.isArray(g) ? g.map(normalizePlayer).filter(Boolean) : []);
-  }, [normalizePlayer]);
+  // Normalizers are provided by `src/lib/normalizers.js`
 
   // Fetch courts from API and normalize
   const fetchCourts = useCallback(async () => {
@@ -118,7 +87,7 @@ export default function Page() {
       console.error('fetchCourts error', err);
       showToast('ไม่สามารถโหลดสถานะคอร์ทจากเซิร์ฟเวอร์ได้', 'error');
     }
-  }, [API_BASE, normalizeCourts]);
+  }, [API_BASE]);
 
   // Load players from API and refresh on `players:updated` events
   const loadPlayers = useCallback(async () => {
@@ -135,7 +104,7 @@ export default function Page() {
     } finally {
       setLoadingPlayers(false);
     }
-  }, [API_BASE, normalizePlayer]);
+  }, [API_BASE]);
 
   useEffect(() => {
     let mounted = true;
@@ -147,514 +116,199 @@ export default function Page() {
       mounted = false;
       window.removeEventListener('players:updated', onUpdated);
     };
-  }, [API_BASE, fetchCourts, normalizePlayer, loadPlayers]);
+  }, [API_BASE, fetchCourts, loadPlayers]);
 
-  // SMART MATCHMAKING
+  // SMART MATCHMAKING (delegates to shared matchmaker)
   // ====================================================
   function generateNextQueue() {
-    console.log('SMART MATCHMAKING...generateNextQueue')
-    const busyIds = courts.flatMap(c =>
-      (c.players || []).map(p => p.id)
-    );
-
-    // available players — exclude those currently on court and those marked stopped
-    let available = players.filter(p => !busyIds.includes(p.id) && p.play_status !== 'stopped');
-
-    // apply cooldown rule when strict
-    if (rulesStrict) {
-      available = available.filter(p => round - p.lastPlayedRound >= COOLDOWN);
-    }
-
-    // fairness score
-    available = available
-      .map(p => ({
-        ...p,
-        priority: rulesStrict
-          ? p.matches * 10 + (round - p.lastPlayedRound) * -1 + Math.random()
-          : p.matches * 10 + Math.random(),
-      }))
-      .sort((a, b) => a.priority - b.priority);
-
-    const groups = [];
-
-    // helper: map player to level label
-    function levelLabel(p) {
-      const lvl = (p && (p.level ?? p.rank ?? p.skill)) || 0;
-      if (lvl >= 1800) return "P";
-      if (lvl >= 1500) return "S";
-      if (lvl >= 1200) return "N";
-      return "N-";
-    }
-
-    // try to reorder 4 players into two teams (A,B) of two players each
-    // such that the multiset of level labels on each team matches
-    function findBalancedOrdering(group) {
-      if (!group || group.length !== 4) return null;
-      const idx = [0,1,2,3];
-      // try all combinations for team A (choose 2 indices)
-      for (let i = 0; i < 4; i++) {
-        for (let j = i + 1; j < 4; j++) {
-          const aIdx = [i, j];
-          const bIdx = idx.filter(k => k !== i && k !== j);
-          const aLabels = aIdx.map(k => levelLabel(group[k])).sort().join(',');
-          const bLabels = bIdx.map(k => levelLabel(group[k])).sort().join(',');
-          if (aLabels === bLabels) {
-            // return ordering: team A players first, then team B
-            return [group[aIdx[0]], group[aIdx[1]], group[bIdx[0]], group[bIdx[1]]];
-          }
-        }
-      }
-      return null;
-    }
-
-    while (available.length >= 4) {
-      const group = available.splice(0, 4);
-
-      // attempt to balance by level where possible
-      const balanced = findBalancedOrdering(group);
-      const finalGroup = balanced || group;
-
-      // if strict, ensure no immediate teammate repeats
-      if (rulesStrict) {
-        if (!hasRepeatTeammate(finalGroup)) groups.push(finalGroup);
-      } else {
-        groups.push(finalGroup);
-      }
-    }
-
-    console.debug("generateNextQueue", { busyCount: busyIds.length, availableCount: players.length - busyIds.length, groups: groups.length, rulesStrict });
-
+    const groups = buildGroups({ players, courts, rulesStrict, round, COOLDOWN });
+    console.debug('generateNextQueue', { groups: groups.length, rulesStrict });
     setNextQueue(groups);
   }
 
   // Refill (append) nextQueue up to NEXT_SHOW without replacing existing entries
   function refillNextQueue() {
-    console.log('Refill (append) nextQueue ');
-    
     setNextQueue(prev => {
       if (prev.length >= effectiveNextShow) return prev;
-
-      const busyIds = courts.flatMap(c => (c.players || []).map(p => p.id));
-      const queuedIds = prev.flatMap(g => g.map(p => p.id));
-
-      let available = players.filter(p => !busyIds.includes(p.id) && !queuedIds.includes(p.id));
-
-      if (rulesStrict) {
-        available = available.filter(p => round - p.lastPlayedRound >= COOLDOWN);
-      }
-
-      available = available
-        .map(p => ({
-          ...p,
-          priority: rulesStrict ? p.matches * 10 + (round - p.lastPlayedRound) * -1 + Math.random() : p.matches * 10 + Math.random(),
-        }))
-        .sort((a, b) => a.priority - b.priority);
-
-      const groupsToAdd = [];
-
-      // helper: level label for balancing (same thresholds as PlayerCard)
-      function levelLabel(p) {
-        const lvl = (p && (p.level ?? p.rank ?? p.skill)) || 0;
-        if (lvl >= 1800) return "P";
-        if (lvl >= 1500) return "S";
-        if (lvl >= 1200) return "N";
-        return "N-";
-      }
-
-      function findBalancedOrdering(group) {
-        if (!group || group.length !== 4) return null;
-        const idx = [0,1,2,3];
-        for (let i = 0; i < 4; i++) {
-          for (let j = i + 1; j < 4; j++) {
-            const aIdx = [i, j];
-            const bIdx = idx.filter(k => k !== i && k !== j);
-            const aLabels = aIdx.map(k => levelLabel(group[k])).sort().join(',');
-            const bLabels = bIdx.map(k => levelLabel(group[k])).sort().join(',');
-            if (aLabels === bLabels) {
-              return [group[aIdx[0]], group[aIdx[1]], group[bIdx[0]], group[bIdx[1]]];
-            }
-          }
-        }
-        return null;
-      }
-
-      while (available.length >= 4 && prev.length + groupsToAdd.length < effectiveNextShow) {
-        const group = available.splice(0, 4);
-        const balanced = findBalancedOrdering(group);
-        const finalGroup = balanced || group;
-        if (rulesStrict) {
-          if (!hasRepeatTeammate(finalGroup)) groupsToAdd.push(finalGroup);
-        } else {
-          groupsToAdd.push(finalGroup);
-        }
-      }
-
-      console.debug("refillNextQueue", { prevLength: prev.length, groupsToAdd: groupsToAdd.length, rulesStrict });
-
-      return [...prev, ...groupsToAdd];
+      return appendGroups({ prevQueue: prev, players, courts, rulesStrict, round, COOLDOWN, effectiveNextShow });
     });
   }
 
-  function hasRepeatTeammate(group) {
-    for (let i = 0; i < group.length; i++) {
-      for (let j = i + 1; j < group.length; j++) {
-        if (group[i].teammates[group[j].id]) {
-          return true;
-        }
-      }
-    }
-    return false;
-  }
+  // teammate-repeat detection provided by matchmaker
 
   // ====================================================
   // ASSIGN MATCH
   // ====================================================
-  function assignNextToCourt(courtId, index) {
+  async function assignNextToCourt(courtId, index) {
     const group = nextQueue[index];
     if (!group) return;
 
+    // 1. เตรียมข้อมูล Round ล่วงหน้าเพื่อความแม่นยำ
+    const currentRound = round; 
+    const nextRound = currentRound + 1;
+
+    // 2. Optimistic Update สำหรับรายชื่อผู้เล่น (Matches + Teammates)
     const updatedPlayers = players.map(p => {
-      const g = group.find(x => x.id === p.id);
-      if (!g) return p;
+      const isPlayerInGroup = group.find(x => x.id === p.id);
+      if (!isPlayerInGroup) return p;
 
       const newTeammates = { ...p.teammates };
-
       group.forEach(t => {
-        if (t.id !== p.id)
-          newTeammates[t.id] =
-            (newTeammates[t.id] || 0) + 1;
+        if (t.id !== p.id) {
+          newTeammates[t.id] = (newTeammates[t.id] || 0) + 1;
+        }
       });
 
       return {
         ...p,
-        matches: p.matches + 1,
-        lastPlayedRound: round,
+        matches: (p.matches || 0) + 1,
+        lastPlayedRound: currentRound,
         teammates: newTeammates,
       };
     });
 
+    // 3. อัปเดต State สนามทันที (แสดงสถานะ Occupied)
+    const groupWithUpdatedStats = updatedPlayers.filter(p => group.some(g => g.id === p.id));
+    
+    setCourts(prev => prev.map(c => 
+      c.id === courtId 
+        ? { ...c, players: groupWithUpdatedStats, status: 'occupied', finished: false, loading: true } // เพิ่ม loading flag
+        : c
+    ));
+
     setPlayers(updatedPlayers);
+    setRound(nextRound);
 
-    const updatedGroup = updatedPlayers.filter(p =>
-      group.some(g => g.id === p.id)
-    );
-
-    // compute updated courts synchronously so we can use it immediately
-    const updatedCourts = courts.map(c =>
-        c.id === courtId
-          ? { ...c, players: updatedGroup, finished: false, status: 'occupied' }
-          : c
-    );
-
-    console.info("assignNextToCourt: assigning group to court", { courtId, groupIds: group.map(g => g.id), round });
-
-    setCourts(updatedCourts);
-
-    console.debug("assignNextToCourt: updatedCourts", updatedCourts);
-
-    // remove the assigned group and try to refill queue up to NEXT_SHOW
+    // 4. จัดการคิวถัดไป (Remove & Refill)
     setNextQueue(prev => {
       const newQ = prev.filter((_, i) => i !== index);
-
-      // compute busy and queued ids using the updated courts we just set
-      const busyIds = updatedCourts.flatMap(c => (c.players || []).map(p => p.id));
-      const queuedIds = newQ.flatMap(g => g.map(p => p.id));
-
-      // temporarily ignore cooldown and teammate constraints
-      let available = players.filter(
-        p => !busyIds.includes(p.id) && !queuedIds.includes(p.id)
-      );
-
-      // fairness/priority
-      available = available
-        .map(p => ({
-          ...p,
-          priority:
-            p.matches * 10 +
-            (round - p.lastPlayedRound) * -1 +
-            Math.random(),
-        }))
-        .sort((a, b) => a.priority - b.priority);
-
-      const groupsToAdd = [];
-
-      while (
-        available.length >= 4 &&
-        newQ.length + groupsToAdd.length < effectiveNextShow
-      ) {
-        const group = available.splice(0, 4);
-        groupsToAdd.push(group);
-      }
-
-      console.info("assignNextToCourt: groups added", { added: groupsToAdd.length, courtId, effectiveNextShow });
-
-      return [...newQ, ...groupsToAdd];
+      return appendGroups({ 
+        prevQueue: newQ, 
+        players: updatedPlayers, 
+        courts: courts.map(c => c.id === courtId ? { ...c, players: groupWithUpdatedStats } : c), 
+        rulesStrict: false, 
+        round: nextRound, 
+        COOLDOWN, 
+        effectiveNextShow 
+      });
     });
 
-    setRound(r => r + 1);
-
-    // Create a provisional match on the server so it can be completed or cancelled later.
-    (async () => {
-      try {
-        const payload = {
-          round: round,
+    // 5. Backend Sync
+    try {
+      const res = await fetch(`${API_BASE}/api/matches`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          round: currentRound,
           court_id: courtId,
-          player_ids: updatedGroup.map(p => p.id),
+          player_ids: groupWithUpdatedStats.map(p => p.id),
           result: 'playing',
           provisional: true,
-        };
+        }),
+      });
 
-        const res = await fetch(`${API_BASE}/api/matches`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-          body: JSON.stringify(payload),
-        });
+      if (!res.ok) throw new Error('API Error');
+      const data = await res.json();
+      const match = data.match || data;
 
-        if (!res.ok) {
-          const errBody = await res.json().catch(() => ({}));
-          throw new Error(errBody?.message || 'Failed to create provisional match');
-        }
-
-        const data = await res.json();
-        const match = data.match || data;
-
-        // Debug log: show what match_id is being attached
-        // console.log('assignNextToCourt: received match', match);
-
-        // attach match_id to the assigned court so future finish/cancel operations can reference it
-        if (match && match.id) {
-          setCourts(prev => {
-            const updated = prev.map(c => c.id === courtId ? { ...c, match_id: match.id } : c);
-            // Debug log: show courts after attaching match_id
-            // console.log('assignNextToCourt: courts after attaching match_id', updated);
-            return updated;
-          });
-        } else {
-          console.warn('assignNextToCourt: No match.id returned from backend!', match);
-        }
-
-        // Only refresh player list after match creation is fully completed
-        showToast('จัดลงสนามเรียบร้อย', 'success');
-        try {
-          const res = await fetch(`${API_BASE}/api/players`, { headers: { Accept: 'application/json' } });
-          if (res.ok) {
-            const data = await res.json();
-            const list = Array.isArray(data.players) ? data.players : (Array.isArray(data) ? data : []);
-            setPlayers((list || []).map(normalizePlayer).filter(Boolean));
-          }
-        } catch (e) {
-          console.warn('assignNextToCourt: failed to refresh player list', e);
-        }
-      } catch (err) {
-        console.error('assignNextToCourt: provisional match creation failed', err);
-        showToast(String(err || 'Failed to create provisional match'), 'error');
-      }
-    })();
+      // อัปเดต match_id เข้าไปที่สนาม และปลดสถานะ loading
+      setCourts(prev => prev.map(c => 
+        c.id === courtId ? { ...c, match_id: match.id, loading: false } : c
+      ));
+      
+      showToast('จัดลงสนามเรียบร้อย', 'success');
+    } catch (err) {
+      console.error(err);
+      showToast('เกิดข้อผิดพลาดในการบันทึกข้อมูล', 'error');
+      // ในกรณี Error รุนแรง อาจพิจารณา Rollback state หรือให้ผู้ใช้ลองกดใหม่
+    }
   }
 
   // ====================================================
-  // FORCE FILL (EMERGENCY) - ignores cooldown and teammate-repeat
+  // FORCE FILL (EMERGENCY) - delegates to matchmaker
   // ====================================================
   function forceFillQueue() {
-    setNextQueue(prev => {
-      const newQ = [...prev];
-
-      // choose players not currently on court and not already queued
-      const busyIds = courts.flatMap(c => (c.players || []).map(p => p.id));
-      const queuedIds = newQ.flatMap(g => g.map(p => p.id));
-
-      let available = players.filter(p => !busyIds.includes(p.id) && !queuedIds.includes(p.id));
-
-      // simple deterministic order (by matches asc, then id)
-      available = available.sort((a, b) => a.matches - b.matches || a.id - b.id);
-
-      const groupsToAdd = [];
-
-      // attempt to balance levels when force-filling
-      function levelLabel(p) {
-        const lvl = (p && (p.level ?? p.rank ?? p.skill)) || 0;
-        if (lvl >= 1800) return "P";
-        if (lvl >= 1500) return "S";
-        if (lvl >= 1200) return "N";
-        return "N-";
-      }
-
-      function findBalancedOrdering(group) {
-        if (!group || group.length !== 4) return null;
-        const idx = [0,1,2,3];
-        for (let i = 0; i < 4; i++) {
-          for (let j = i + 1; j < 4; j++) {
-            const aIdx = [i, j];
-            const bIdx = idx.filter(k => k !== i && k !== j);
-            const aLabels = aIdx.map(k => levelLabel(group[k])).sort().join(',');
-            const bLabels = bIdx.map(k => levelLabel(group[k])).sort().join(',');
-            if (aLabels === bLabels) {
-              return [group[aIdx[0]], group[aIdx[1]], group[bIdx[0]], group[bIdx[1]]];
-            }
-          }
-        }
-        return null;
-      }
-
-      while (available.length >= 4 && newQ.length + groupsToAdd.length < effectiveNextShow) {
-        const group = available.splice(0, 4);
-        const balanced = findBalancedOrdering(group);
-        groupsToAdd.push(balanced || group);
-      }
-
-      console.info("forceFillQueue: forced groups added", { added: groupsToAdd.length, effectiveNextShow });
-
-      return [...newQ, ...groupsToAdd];
-    });
+    setNextQueue(prev => forceFillAppendGroups({ prevQueue: prev, players, courts, effectiveNextShow }));
   }
 
   // ====================================================
   // FINISH COURT
   // ====================================================
-  function finishCourt(courtId, manual = false) {
-    // compute updated courts synchronously so we can use the new state immediately
-    const updatedCourts = courts.map(c =>
-      c.id === courtId ? { ...c, players: [], finished: true, match_id: undefined, status: 'available' } : c
-    );
+  async function finishCourt(courtId, manual = false) {
+    // 1. หาข้อมูลคอร์ทปัจจุบันจาก State ล่าสุด
+    const currentCourt = courts.find(c => c.id === courtId);
+    if (!currentCourt || !currentCourt.players || currentCourt.players.length === 0) {
+      showToast('คอร์ทนี้ว่างอยู่แล้ว', 'info');
+      return;
+    }
 
-    setCourts(updatedCourts);
-    // console.info("finishCourt: court finished", { courtId, manual, round });
+    const matchId = currentCourt.match_id;
+    const playerIds = currentCourt.players.map(p => p.id);
 
-    // capture the player ids that were on the court so we can report to the server
-    const court = courts.find(c => c.id === courtId);
-    const groupIds = (court && court.players ? court.players.map(p => p.id) : []);
+    // 2. Optimistic Update: ทำให้คอร์ทว่างทันทีใน UI
+    setCourts(prev => prev.map(c =>
+      c.id === courtId 
+        ? { ...c, players: [], finished: true, match_id: undefined, status: 'available', loading: true } 
+        : c
+    ));
 
-    // async POST to server to register match finish
-    (async () => {
-      if (!groupIds || groupIds.length === 0) {
-        // nothing to report; fall back to existing behavior
-        if (!manual) {
-          setTimeout(() => assignNextToCourt(courtId, 0), 100);
-        } else {
-          // manual fallback: refill local nextQueue up to effectiveNextShow, but preserve manual groups
-          setNextQueue(prev => {
-            const manualGroups = prev.filter(g => g.manualGroup);
-            const newQ = prev.filter(g => !g.manualGroup);
-
-            const busyIds = updatedCourts
-                .filter(c => c.id !== courtId)
-                .flatMap(c => (c.players || []).map(p => p.id));
-
-            const queuedIds = newQ.flatMap(g => g.map(p => p.id));
-
-            let available = players.filter(
-              p => !busyIds.includes(p.id) && !queuedIds.includes(p.id)
-            );
-
-            available = available
-              .map(p => ({
-                ...p,
-                priority: p.matches * 10 + Math.random(),
-              }))
-              .sort((a, b) => a.priority - b.priority);
-
-            const groupsToAdd = [];
-
-            while (
-              available.length >= 4 &&
-              newQ.length + groupsToAdd.length < effectiveNextShow
-            ) {
-              const group = available.splice(0, 4);
-              groupsToAdd.push(group);
-            }
-
-            console.info("finishCourt (manual fallback): groups added", { courtId, added: groupsToAdd.length, effectiveNextShow });
-
-            return [...newQ, ...groupsToAdd, ...manualGroups];
-          });
-        }
-        return;
+    try {
+      // 3. ตรวจสอบว่ามี match_id หรือไม่ (ต้องมีเพื่อส่ง PATCH ไปจบแมตช์)
+      if (!matchId) {
+        throw new Error('ไม่พบ Match ID สำหรับคอร์ทนี้ (อาจไม่ได้สร้างแมตช์ตอนเริ่ม)');
       }
 
-      try {
-        // Only allow finishing if a provisional match exists (must have match_id)
-        if (court && court.match_id) {
-          const match_id = court.match_id;
-          const res = await fetch(`${API_BASE}/api/matches/${match_id}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-            body: JSON.stringify({ round, court_id: courtId, player_ids: groupIds, result: manual ? 'manual' : 'auto' }),
-          });
+      const res = await fetch(`${API_BASE}/api/matches/${matchId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ 
+          round, 
+          court_id: courtId, 
+          player_ids: playerIds, 
+          result: manual ? 'manual' : 'auto',
+          status: 'finished' // บอกสถานะให้ชัดเจน
+        }),
+      });
 
-          if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            throw new Error(err?.message || 'Failed to complete provisional match');
-          }
-
-          const data = await res.json();
-
-          if (data?.newQueue) {
-            // preserve manual groups when updating nextQueue from backend
-            setNextQueue(prev => {
-              const manualGroups = prev.filter(g => g.manualGroup);
-              return [...normalizeQueue(data.newQueue), ...manualGroups];
-            });
-          }
-          if (data?.players && Array.isArray(data.players)) setPlayers(data.players.map(normalizePlayer).filter(Boolean));
-          try { window.dispatchEvent(new CustomEvent('players:updated')); } catch (e) {}
-          showToast('บันทึกจบแมตช์เรียบร้อย', 'success');
-
-          // Always reload courts after finishing
-          await fetchCourts();
-
-          if (!manual) {
-            setTimeout(() => assignNextToCourt(courtId, 0), 100);
-          }
-
-          return;
-        } else {
-          // No provisional match exists, cannot finish
-          showToast('ไม่พบแมตช์สำหรับคอร์ทนี้ กรุณา Assign ก่อน', 'error');
-          return;
-        }
-      } catch (err) {
-        console.error('finishCourt: failed to POST match', err);
-        showToast(String(err || 'Failed to record match'), 'error');
-
-        // on error, preserve UX: still auto-assign or refill locally
-        if (!manual) {
-          setTimeout(() => assignNextToCourt(courtId, 0), 100);
-        } else {
-          setNextQueue(prev => {
-            const newQ = [...prev];
-
-            const busyIds = updatedCourts
-              .filter(c => c.id !== courtId)
-              .flatMap(c => (c.players || []).map(p => p.id));
-
-            const queuedIds = newQ.flatMap(g => g.map(p => p.id));
-
-            let available = players.filter(
-              p => !busyIds.includes(p.id) && !queuedIds.includes(p.id)
-            );
-
-            available = available
-              .map(p => ({
-                ...p,
-                priority: p.matches * 10 + Math.random(),
-              }))
-              .sort((a, b) => a.priority - b.priority);
-
-            const groupsToAdd = [];
-
-            while (
-              available.length >= 4 &&
-              newQ.length + groupsToAdd.length < effectiveNextShow
-            ) {
-              const group = available.splice(0, 4);
-              groupsToAdd.push(group);
-            }
-
-            return [...newQ, ...groupsToAdd];
-          });
-        }
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData?.message || 'บันทึกจบแมตช์ไม่สำเร็จ');
       }
-    })();
+
+      const data = await res.json();
+
+      // 4. อัปเดตข้อมูลผู้เล่นและคิวจากสิ่งที่ Server คำนวณให้ใหม่ (Fresh Data)
+      if (data?.players) {
+        setPlayers(data.players.map(normalizePlayer).filter(Boolean));
+      }
+
+      if (data?.newQueue) {
+        setNextQueue(prev => {
+          const manualGroups = prev.filter(g => g.manualGroup);
+          const serverQueue = normalizeQueue(data.newQueue);
+          // เอากลุ่มจาก Server ขึ้นก่อน แล้วตามด้วย Manual ที่ค้างอยู่ (หรือสลับตามใจชอบ)
+          return [...serverQueue, ...manualGroups];
+        });
+      }
+
+      showToast('จบแมตช์และอัปเดตสถิติเรียบร้อย', 'success');
+
+      // 5. จัดการ Assign คิวถัดไป (ถ้าไม่ใช่โหมด Manual)
+      if (!manual) {
+        // แนะนำ: รอให้ State อัปเดตเสร็จก่อน หรือดึงจากคิวที่เพิ่งได้มา
+        assignNextToCourt(courtId, 0); 
+      }
+
+    } catch (err) {
+      console.error('finishCourt error:', err);
+      showToast(err.message, 'error');
+      
+      // Fallback: ถ้า Error ยังต้องทำให้คอร์ทกลับมาใช้งานได้ (หรือ Rollback)
+      setCourts(prev => prev.map(c => c.id === courtId ? { ...c, loading: false } : c));
+    } finally {
+      // โหลดข้อมูลสนามล่าสุดเผื่อมีการเปลี่ยนแปลงจาก Admin ท่านอื่น
+      await fetchCourts();
+    }
   }
 
   // ====================================================
@@ -662,66 +316,78 @@ export default function Page() {
   // ====================================================
   function rollbackCourt(courtId) {
     const court = courts.find(c => c.id === courtId);
-    if (!court || !court.players || court.players.length === 0) return;
+    if (!court || !court.players || court.players.length === 0) {
+        showToast('ไม่สามารถยกเลิกได้ เนื่องจากคอร์ทว่าง', 'error');
+        return;
+    }
 
     const groupIds = court.players.map(p => p.id);
+    const match_id = court.match_id;
 
-    // revert players' matches and lastPlayedRound
-    const updatedPlayers = players.map(p => {
-      if (!groupIds.includes(p.id)) return p;
-      return {
-        ...p,
-        matches: Math.max(0, (p.matches || 0) - 1),
-        lastPlayedRound: (p.lastPlayedRound || -10) - 1,
-      };
-    });
+    // 1. รักษาลำดับเดิมของกลุ่ม (0,1 vs 2,3) เพื่อโยนกลับเข้าคิวให้หน้าตาเหมือนเดิม
+    const groupToReturn = [...court.players];
 
-    // make the court available
-    const updatedCourts = courts.map(c =>
-      c.id === courtId ? { ...c, players: [], finished: true, match_id: undefined, status: 'available' } : c
-    );
+    // 2. Optimistic Update: แก้ไข State ทันทีเพื่อให้ UI ตอบสนอง
+    setPlayers(prev => prev.map(p => {
+        if (!groupIds.includes(p.id)) return p;
+        return {
+            ...p,
+            matches: Math.max(0, (p.matches || 0) - 1),
+            // คืนค่า Round ให้เป็นค่าที่ "น่าจะ" เป็น (หรือปล่อยให้ Matchmaker คำนวณใหม่จากสถิติจริง)
+            lastPlayedRound: Math.max(-1, (p.lastPlayedRound || 0) - 1),
+        };
+    }));
 
-    // push the rolled-back group to the front of nextQueue
-    const rolledGroup = updatedPlayers.filter(p => groupIds.includes(p.id));
+    setCourts(prev => prev.map(c =>
+        c.id === courtId 
+            ? { ...c, players: [], finished: false, match_id: undefined, status: 'available' } 
+            : c
+    ));
 
-    setPlayers(updatedPlayers);
-    setCourts(updatedCourts);
+    // โยนกลุ่มนี้กลับไปที่หัวคิว (เพื่อให้ Admin เห็นว่าคนกลุ่มนี้กลับมาว่างแล้ว)
+    setNextQueue(prev => [groupToReturn, ...prev]);
 
-    setNextQueue(prev => [rolledGroup, ...prev]);
-
-    // decrement round (but not below 0)
-    setRound(r => Math.max(0, r - 1));
-
-    console.info("rollbackCourt: rolled back court", { courtId, groupIds });
-
-    // If this court had a provisional match recorded on the server, attempt to delete it.
+    // 3. Async API Call: ลบแมตช์บน Server
     (async () => {
-      try {
-        const match_id = court.match_id;
-        if (!match_id) return;
+        try {
+            if (!match_id) {
+                showToast('ยกเลิกเฉพาะในแอป (ไม่พบ Match ID บนเซิร์ฟเวอร์)', 'info');
+                return;
+            }
 
-        const res = await fetch(`${API_BASE}/api/matches/${match_id}`, {
-          method: 'DELETE',
-          headers: { Accept: 'application/json' },
-        });
+            const res = await fetch(`${API_BASE}/api/matches/${match_id}`, {
+                method: 'DELETE',
+                headers: { Accept: 'application/json' },
+            });
 
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err?.message || 'Failed to delete provisional match');
+            if (!res.ok) {
+                throw new Error('Server failed to delete match');
+            }
+
+            const data = await res.json();
+            
+            // ถ้า Server คืนค่าผู้เล่นที่เป็นปัจจุบันที่สุด (Authoritative) มาให้ ให้ใช้ค่านั้นเลย
+            if (data?.players) {
+                setPlayers(data.players.map(normalizePlayer));
+            }
+            
+            // ถ้า Server คำนวณคิวให้ใหม่หลังจากยกเลิก ก็อัปเดตตาม
+            if (data?.newQueue) {
+                setNextQueue(prev => {
+                    const manualOnes = prev.filter(g => g.manualGroup);
+                    return [...normalizeQueue(data.newQueue), ...manualOnes];
+                });
+            }
+
+            showToast('ยกเลิกแมตช์เรียบร้อย ข้อมูลถูก Rollback แล้ว', 'success');
+            window.dispatchEvent(new CustomEvent('players:updated'));
+
+        } catch (err) {
+            console.error('rollbackCourt Error:', err);
+            showToast('เกิดข้อผิดพลาดในการยกเลิกบนเซิร์ฟเวอร์', 'error');
+        } finally {
+            await fetchCourts(); // Refresh สถานะสนามให้ชัวร์
         }
-
-        // adopt authoritative players if server returned them
-        const data = await res.json().catch(() => ({}));
-        if (data?.players && Array.isArray(data.players)) {
-          setPlayers(data.players.map(normalizePlayer).filter(Boolean));
-        }
-
-        try { window.dispatchEvent(new CustomEvent('players:updated')); } catch (e) {}
-        showToast('ยกเลิกแมตช์บนเซิร์ฟเวอร์เรียบร้อย', 'success');
-      } catch (err) {
-        console.error('rollbackCourt: failed to delete provisional match', err);
-        showToast(String(err || 'Failed to cancel provisional match on server'), 'error');
-      }
     })();
   }
 

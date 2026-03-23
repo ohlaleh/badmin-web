@@ -14,17 +14,28 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata = {
-  title: "Badminton Queue",
-  description: "Court Queue Manager",
+  title: "Badminton Queue | ระบบจัดการคิวก๊วน",
+  description: "ระบบบริหารจัดการสนามและคิวนักกีฬาแบดมินตันมืออาชีพ",
+};
+
+// Viewport should be exported via `viewport` for Next.js app metadata support
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
 };
 
 export default function RootLayout({ children }) {
+  // ใช้ `lang="th"` เพื่อช่วยการตัดคำภาษาไทยที่ถูกต้อง
   return (
-    <html lang="en">
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+    <html lang="th">
+      <body className={`${geistSans.variable} ${geistMono.variable} antialiased bg-gray-50 text-slate-900 min-h-screen`}>
         <AppProvider>
-          <AppHeader />
-          {children}
+          {/* จัดโครงสร้างให้ Header อยู่ด้านบน และ content อยู่ใน container */}
+          <div className="flex flex-col min-h-screen">
+            <AppHeader />
+            <main className="flex-1 container mx-auto p-4 md:p-6">{children}</main>
+          </div>
         </AppProvider>
       </body>
     </html>

@@ -6,7 +6,6 @@ export default function showToast(message, type = 'info', timeout = 4500) {
   } catch (e) {
     // no-op in non-browser or if CustomEvent blocked
     // fallback: console log
-    // eslint-disable-next-line no-console
     console.warn('showToast fallback:', message, type);
   }
 }

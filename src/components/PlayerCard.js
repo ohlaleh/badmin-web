@@ -3,89 +3,105 @@
 import Image from "next/image"
 import React from "react"
 
-const PALETTE = [
-  { dot: "bg-rose-500", name: "bg-rose-100 text-rose-800" },
-  { dot: "bg-amber-500", name: "bg-amber-100 text-amber-800" },
-  { dot: "bg-sky-500", name: "bg-sky-100 text-sky-800" },
-  { dot: "bg-lime-500", name: "bg-lime-100 text-lime-800" },
-  { dot: "bg-fuchsia-500", name: "bg-fuchsia-100 text-fuchsia-800" },
-]
+/**
+ * ฟังก์ชันดึงค่าระดับฝีมือ (Level) และกำหนดสีที่เหมาะสม
+ */
+function getLevelStyle(player) {
+  const level = (player && typeof player.level === 'string') ? player.level : 'N-';
+  
+  const styles = {
+    'P': { 
+      bg: 'bg-yellow-100 text-yellow-800 border-yellow-200', 
+      dot: 'bg-yellow-500', 
+      label: 'โปร' 
+    },
+    'S': { 
+      bg: 'bg-purple-100 text-purple-800 border-purple-200', 
+      dot: 'bg-purple-500', 
+      label: 'เซมิ' 
+    },
+    'N': { 
+      bg: 'bg-blue-100 text-blue-800 border-blue-200', 
+      dot: 'bg-blue-500', 
+      label: 'ปกติ' 
+    },
+    'N-': { 
+      bg: 'bg-orange-100 text-orange-800 border-orange-200', 
+      dot: 'bg-orange-500', 
+      label: 'เริ่ม' 
+    }
+  };
 
-function deterministicIndex(id, mod = PALETTE.length) {
-  if (!id) return 0
-  let h = 0
-  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0
-  return Math.abs(h) % mod
-}
-
-function getLevelLabel(player) {
-  return (player && typeof player.level === 'string') ? player.level : 'N-';
+  return styles[level] || styles['N-'];
 }
 
 export function detectStatus(player) {
-  // New mapping per request:
-  // P = on-court (playing)
-  // Q = explicitly flagged as having no next match
-  // Fallback: R = not on queue / unknown
-  const s = (player && (player.status || player.state || "")).toString().toLowerCase()
+  const s = (player && (player.status || player.state || "")).toString().toLowerCase();
 
-  // On-court detection -> P
-  if (s === "p" || s === "playing" || s === "on_court" || s === "oncourt" || s === "in_play") return { code: 'P', bg: 'bg-emerald-500', text: 'text-white', title: 'อยู่ในคอร์ท' }
-  if (player?.playing === true || player?.onCourt === true || player?.on_court === true) return { code: 'P', bg: 'bg-emerald-500', text: 'text-white', title: 'อยู่ในคอร์ท' }
-
-  // No-next-match detection -> Q
-  if (s === 'no_next' || s === 'no_next_match' || s === 'no next' || s === 'none' || s === 'no-match') return { code: 'Q', bg: 'bg-gray-200', text: 'text-gray-800', title: 'ไม่มีแมตช์ถัดไป' }
-  if (player?.nextMatch === false || player?.next_match === false || player?.hasNext === false || player?.has_next === false) return { code: 'Q', bg: 'bg-gray-200', text: 'text-gray-800', title: 'ไม่มีแมตช์ถัดไป' }
-
-  // If explicitly queued/on queue, keep previous behavior as R (or you can change)
-  if (s === "q" || s === "queued" || s === "on_queue" || s === "onqueue" || s === "next") return { code: 'R', bg: 'bg-amber-500', text: 'text-white', title: 'อยู่ในคิว' }
-  if (player?.inQueue === true || player?.queued === true) return { code: 'R', bg: 'bg-amber-500', text: 'text-white', title: 'อยู่ในคิว' }
-
-  // Default -> R (not on queue / unknown)
-  return { code: 'R', bg: 'bg-gray-100', text: 'text-gray-700', title: 'ไม่อยู่ในคิว' }
-}
-
-export default function PlayerCard({ player, showStatus = false }) {
-  // Color by player level (same as PlayerList)
-  const level = getLevelLabel(player);
-  let nameBgClass = 'bg-slate-100 text-slate-800';
-  let dotClass = 'bg-slate-400';
-  if (level === 'N-') {
-    nameBgClass = 'bg-amber-100 text-amber-800';
-    dotClass = 'bg-amber-500';
-  } else if (level === 'N') {
-    nameBgClass = 'bg-blue-100 text-blue-800';
-    dotClass = 'bg-blue-500';
-  } else if (level === 'S') {
-    nameBgClass = 'bg-purple-100 text-purple-800';
-    dotClass = 'bg-purple-500';
-  } else if (level === 'P') {
-    nameBgClass = 'bg-yellow-100 text-yellow-800';
-    dotClass = 'bg-yellow-500';
+  // P = Playing (อยู่ในคอร์ท)
+  if (s.includes("p") || s.includes("playing") || player?.playing || player?.on_court) {
+    return { code: 'P', bg: 'bg-emerald-500', text: 'text-white', title: 'กำลังแข่ง' };
   }
 
-  const status = detectStatus(player)
+  // Q = No Next Match (ไม่มีแมตช์ถัดไป/หยุดเล่น)
+  if (s.includes("no") || player?.play_status === 'stopped') {
+    return { code: 'Q', bg: 'bg-gray-200', text: 'text-gray-500', title: 'พัก/หยุดเล่น' };
+  }
+
+  // R = Ready/Queued (รอในคิว)
+  return { code: 'R', bg: 'bg-amber-400', text: 'text-white', title: 'รอลงสนาม' };
+}
+
+export default function PlayerCard({ player, showStatus = false, size = "md" }) {
+  const levelStyle = getLevelStyle(player);
+  const status = detectStatus(player);
+  
+  // กำหนดขนาดของ Component
+  const sizeClasses = size === "sm" ? "h-6 w-6" : "h-8 w-8";
 
   return (
-    <div className="flex items-center gap-2">
-      <div className={`inline-flex items-center justify-center h-7 w-7 rounded-full ${dotClass} text-white shrink-0`}>
+    <div className="flex items-center gap-2 group transition-all">
+      {/* Avatar Circle */}
+      <div className={`relative inline-flex items-center justify-center ${sizeClasses} rounded-full ${levelStyle.dot} shadow-sm shrink-0 border-2 border-white`}>
         {player?.avatar ? (
-          <Image src={player.avatar} alt={player.name || "avatar"} width={20} height={20} className="rounded-full" />
+          <Image src={player.avatar} alt="avatar" width={32} height={32} className="rounded-full object-cover" />
         ) : (
-          <Image src={`/avatars/${String(player?.gender || "male").toLowerCase() === "female" ? "female" : "male"}.svg`} alt="avatar" width={18} height={18} />
+          <Image 
+            src={`/avatars/${String(player?.gender || "male").toLowerCase() === "female" ? "female" : "male"}.svg`} 
+            alt="gender" 
+            width={size === "sm" ? 14 : 20} 
+            height={size === "sm" ? 14 : 20} 
+          />
+        )}
+        
+        {/* Status Mini-Dot (Optional: small dot on avatar) */}
+        {showStatus && (
+          <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-white ${status.bg}`}></span>
         )}
       </div>
-      <div className="flex items-center gap-1">
-        <div className={`text-xs px-1.5 py-0.5 rounded-full font-medium ${nameBgClass}`}>
-          {player?.name || "—"}
+
+      {/* Name and Info */}
+      <div className="flex flex-col">
+        <div className="flex items-center gap-1.5">
+          <span className={`text-[11px] sm:text-xs px-2 py-0.5 rounded-md font-bold border ${levelStyle.bg} truncate max-w-[80px] sm:max-w-[100px]`}>
+            {player?.name || "—"}
+          </span>
+          
+          {/* Matches Badge */}
           {typeof player?.matches === 'number' && (
-            <span className="ml-1 text-[10px] text-gray-500">({player.matches})</span>
+            <span className="text-[9px] font-bold text-gray-400 bg-gray-50 px-1 rounded border border-gray-100">
+              {player.matches} นัด
+            </span>
+          )}
+
+          {/* Explicit Status Code Badge (if showStatus is true) */}
+          {showStatus && !size === "sm" && (
+            <div title={status.title} className={`text-[9px] px-1 py-0.5 rounded font-black ${status.bg} ${status.text} min-w-[14px] text-center shadow-sm`}>
+              {status.code}
+            </div>
           )}
         </div>
-        {showStatus ? (
-          <div title={status.title} className={`ml-1 text-[10px] px-1 py-0.5 rounded ${status.bg} ${status.text} font-semibold`}>{status.code}</div>
-        ) : null}
       </div>
     </div>
-  )
+  );
 }
