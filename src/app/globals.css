@@ -1,26 +1,43 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #f8fafc; /* เปลี่ยนเป็น gray-50 ตามที่ตั้งใน layout */
+  --foreground: #0f172a; /* slate-900 */
+  
+  /* เชื่อมโยงฟอนต์หลักกับชื่อตัวแปรที่ Tailwind จะเรียกใช้ */
+  --font-sans: var(--font-plex-thai), ui-sans-serif, system-ui, sans-serif;
+  --font-heading: var(--font-kanit), ui-sans-serif, system-ui, sans-serif;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  
+  /* บอก Tailwind ว่า font-sans และ font-heading คือตัวแปรไหน */
+  --font-sans: var(--font-sans);
+  --font-heading: var(--font-heading);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #0f172a;
+    --foreground: #f8fafc;
   }
 }
 
+/* ล้างค่าเริ่มต้นของ body ให้ใช้ฟอนต์ที่เรากำหนด */
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  /* ใช้ font-sans ที่เราตั้งค่าไว้ ซึ่งรวม IBM Plex Sans Thai ไว้แล้ว */
+  font-family: var(--font-sans);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* สร้าง class พิเศษสำหรับหัวข้อหรือตัวเลขที่ต้องการความโดดเด่น */
+h1, h2, h3, .font-kanit {
+  font-family: var(--font-heading);
+  letter-spacing: -0.02em;
 }
