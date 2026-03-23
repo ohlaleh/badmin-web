@@ -96,7 +96,7 @@ export default function CourtStatus({
           <div className="p-4">
             {!c.players || c.players.length === 0 ? (
               <div className="py-8 flex flex-col items-center justify-center border-2 border-dashed border-gray-100 rounded-xl">
-                <span className="text-gray-300 text-sm italic">Waiting for players...</span>
+                <span className="text-gray-300 text-sm italic">กำลังรอผู้เล่น...</span>
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-0 divide-x divide-gray-100 relative">
