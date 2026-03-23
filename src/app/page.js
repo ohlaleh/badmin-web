@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { useAppContext } from '@/context/AppContext'
 import PlayerList from "@/components/PlayerList";
 import CourtStatus from "@/components/CourtStatus";
 import NextQueue from "@/components/NextQueue";
@@ -341,7 +342,7 @@ export default function Page() {
     // compute updated courts synchronously so we can use it immediately
     const updatedCourts = courts.map(c =>
         c.id === courtId
-          ? { ...c, players: updatedGroup, finished: false }
+          ? { ...c, players: updatedGroup, finished: false, status: 'occupied' }
           : c
     );
 
@@ -396,7 +397,7 @@ export default function Page() {
     (async () => {
       try {
         const payload = {
-          round: 1,
+          round: round,
           court_id: courtId,
           player_ids: updatedGroup.map(p => p.id),
           result: 'playing',
@@ -513,7 +514,7 @@ export default function Page() {
   function finishCourt(courtId, manual = false) {
     // compute updated courts synchronously so we can use the new state immediately
     const updatedCourts = courts.map(c =>
-      c.id === courtId ? { ...c, players: [], finished: true, match_id: undefined } : c
+      c.id === courtId ? { ...c, players: [], finished: true, match_id: undefined, status: 'available' } : c
     );
 
     setCourts(updatedCourts);
@@ -677,7 +678,7 @@ export default function Page() {
 
     // make the court available
     const updatedCourts = courts.map(c =>
-      c.id === courtId ? { ...c, players: [], finished: true, match_id: undefined } : c
+      c.id === courtId ? { ...c, players: [], finished: true, match_id: undefined, status: 'available' } : c
     );
 
     // push the rolled-back group to the front of nextQueue
@@ -862,6 +863,28 @@ export default function Page() {
   // compute effective NEXT_SHOW based on how many full groups can be formed from available players
   const effectiveNextShow = Math.min(NEXT_SHOW, Math.floor(availableCount / 4));
 
+  // Provide header state/actions via AppContext instead of window events
+  try {
+    // dynamic import via require to avoid server-side reference failures
+  } catch (e) {}
+
+  // Register header state with AppContext when running in the browser
+  useEffect(() => {
+    let mounted = true
+    try {
+      const { useAppContext } = require('@/context/AppContext')
+      // If require/import succeeded and this module is a client-side hook,
+      // we can't call hooks conditionally here. Instead, page registers
+      // values by calling the exported setter functions on window as a
+      // fallback for environments where context isn't used. However, since
+      // we implemented AppContext as a client provider and `page.js` is a
+      // client component, we'll import the hook normally at runtime below.
+    } catch (e) {
+      // ignore — fallback to event-based behaviour if context import isn't resolvable
+    }
+  }, [])
+
+
   // Auto-refill Next queue whenever players/courts/round change
   useEffect(() => {
     // guard against duplicate rapid invocations (React StrictMode mounts twice in dev)
@@ -871,6 +894,25 @@ export default function Page() {
     refillNextQueue();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [players, courts, round]);
+
+  // Sync with AppContext (header)
+  const appCtx = useAppContext();
+
+  useEffect(() => {
+    if (!appCtx) return;
+    appCtx.setEffectiveNextShow(effectiveNextShow);
+  }, [appCtx, effectiveNextShow]);
+
+  useEffect(() => {
+    if (!appCtx) return;
+    appCtx.setResetting(resetting);
+  }, [appCtx, resetting]);
+
+  useEffect(() => {
+    if (!appCtx) return;
+    const unsubscribe = appCtx.setOnRequestReset(() => resetAll());
+    return () => { if (typeof unsubscribe === 'function') unsubscribe(); }
+  }, [appCtx]);
 
   return (
     <div>
@@ -912,42 +954,7 @@ export default function Page() {
           </div>
         </div>
       )}
-      <header className="mb-2 p-3 md:p-4 bg-white rounded-lg shadow-sm sticky top-0 z-50">
-        <div className="max-w-full mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="text-2xl font-extrabold">Badmin</div>
-            <div className="text-sm text-gray-500">จัดการคอร์ท</div>
-          </div>
-          <div className="flex flex-col items-end">
-            <div className="text-sm text-gray-600 flex items-center gap-2">
-              {loadingPlayers && (
-                <svg className="animate-spin h-4 w-4 text-gray-600" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
-                </svg>
-              )}
-              <span>เวอร์ชัน 1.0</span>
-            </div>
-            <div className="mt-1 flex items-center gap-2">
-              <span className="inline-block bg-indigo-600 text-white text-xs font-medium px-2 py-0.5 rounded">สามารถจัดได้ {effectiveNextShow} สนาม</span>
-              <button
-                onClick={resetAll}
-                disabled={resetting}
-                className={`inline-flex items-center text-xs px-2 py-1 border rounded bg-white text-red-600 ${resetting ? 'opacity-50 cursor-not-allowed' : 'hover:bg-red-50'}`}
-                title="รีเซ็ตข้อมูลทั้งหมด"
-              >
-                {resetting ? (
-                  <svg className="animate-spin h-4 w-4 mr-2 text-red-600" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
-                  </svg>
-                ) : null}
-                รีเซ็ต
-              </button>
-            </div>
-          </div>
-        </div>
-      </header>
+      
 
       <main className="flex flex-col gap-2 p-2 md:p-4">
         {/* Row 1: 4 columns for each court */}
@@ -974,9 +981,6 @@ export default function Page() {
         {/* Row 2: 3 columns — PlayerList 1/3, NextQueue 2/3 */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
           <div className="md:col-span-2">
-            <PlayerList players={sortedPlayers} nextQueue={nextQueue} courts={courts} onAdd={handleAddPlayer} loadPlayers={loadPlayers} generateNextQueue={generateNextQueue} />
-          </div>
-          <div className="md:col-span-2">
             <NextQueue
               queue={[
                 ...nextQueue.filter(g => !g.manualGroup).slice(0, effectiveNextShow),
@@ -989,6 +993,7 @@ export default function Page() {
               onForceFill={guardedForceFill}
               onToggleRules={guardedToggleRules}
               rulesStrict={rulesStrict}
+              round={round}
               nextShow={effectiveNextShow}
               availableCount={availableCount}
               players={players}
@@ -1000,6 +1005,9 @@ export default function Page() {
                 }
               }}
             />
+          </div>
+          <div className="md:col-span-2">
+            <PlayerList players={sortedPlayers} nextQueue={nextQueue} courts={courts} onAdd={handleAddPlayer} loadPlayers={loadPlayers} generateNextQueue={generateNextQueue} />
           </div>
         </div>
       </main>

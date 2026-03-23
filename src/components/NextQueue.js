@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
+import Image from 'next/image'
 import PlayerCard from "./PlayerCard";
 
 // deterministic helper to map a string (id) to an index
@@ -33,6 +34,26 @@ function getBadgeClasses(id) {
   const idx = n % palette.length;
 
   return `${palette[idx].bg} ${palette[idx].text}`;
+}
+
+function getLevelClasses(player) {
+  const level = (player && typeof player.level === 'string') ? player.level : 'N-';
+  let nameBgClass = 'bg-slate-100 text-slate-800';
+  let dotClass = 'bg-slate-400';
+  if (level === 'N-') {
+    nameBgClass = 'bg-amber-100 text-amber-800';
+    dotClass = 'bg-amber-500';
+  } else if (level === 'N') {
+    nameBgClass = 'bg-blue-100 text-blue-800';
+    dotClass = 'bg-blue-500';
+  } else if (level === 'S') {
+    nameBgClass = 'bg-purple-100 text-purple-800';
+    dotClass = 'bg-purple-500';
+  } else if (level === 'P') {
+    nameBgClass = 'bg-yellow-100 text-yellow-800';
+    dotClass = 'bg-yellow-500';
+  }
+  return { nameBgClass, dotClass };
 }
 
 function groupHasPlayerOnCourt(group, courts) {
@@ -80,8 +101,9 @@ function NextQueue(props) {
     return () => console.log('NextQueue unmounted');
   }, []);
 
-  const manualGroups = queue.filter(g => g.manualGroup);
-  const autoGroups = queue.filter(g => !g.manualGroup);
+  // Groups from queue, but only include groups composed of active players
+  const manualGroups = (queue || []).filter(g => g.manualGroup).filter(g => !(Array.isArray(g) ? g : (g && g.players ? g.players : [])).some(p => p.play_status === 'stopped'));
+  const autoGroups = (queue || []).filter(g => !g.manualGroup).filter(g => !(Array.isArray(g) ? g : (g && g.players ? g.players : [])).some(p => p.play_status === 'stopped'));
 
   // quick lookups for manual modal: which players are on court or already queued
   // map playerId -> courtId for players currently on a court
@@ -185,7 +207,7 @@ function NextQueue(props) {
             <div className="relative w-full max-w-md bg-white rounded-lg p-6 shadow-lg" onClick={e => e.stopPropagation()}>
               <h3 className="text-lg font-semibold mb-2">เลือกผู้เล่นเอง (เลือกครบ 4 คนเท่านั้น)</h3>
               <div className="max-h-64 overflow-y-auto mb-4 divide-y">
-                {(players || []).filter(Boolean).map((p) => (
+                {(players || []).filter(Boolean).filter(p => p.play_status !== 'stopped').map((p) => (
                   <label
                     key={p.id}
                     className={`flex items-center gap-3 py-2 cursor-pointer rounded transition-colors duration-100 ${manualSelectedEffective.includes(p.id) ? 'bg-blue-500 text-white' : ''}`}
@@ -204,19 +226,28 @@ function NextQueue(props) {
                       className="accent-blue-500 w-5 h-5"
                     />
                     <span className="flex-1 flex items-center gap-2">
-                      {/* Avatar placeholder */}
-                      <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full font-bold text-base ${manualSelectedEffective.includes(p.id) ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-600'}`}>
-                        {p.name?.[0] || '?'}
-                      </span>
-                      <span className="font-medium text-base">{p.name}</span>
+                      {/* Avatar: gender icon with level-based background (match PlayerCard) */}
+                      {(() => {
+                        const { dotClass } = getLevelClasses(p);
+                        const selected = manualSelectedEffective.includes(p.id);
+                        const avatarBg = `${dotClass} ${selected ? 'ring-2 ring-blue-400' : ''}`;
+                        return (
+                          <div className={`inline-flex items-center justify-center w-8 h-8 rounded-full ${avatarBg} text-white shrink-0`}>
+                            {p?.avatar ? (
+                              <Image src={p.avatar} alt={p.name || 'avatar'} width={18} height={18} className="rounded-full" />
+                            ) : (
+                              <Image src={`/avatars/${String(p?.gender || 'male').toLowerCase() === 'female' ? 'female' : 'male'}.svg`} alt="avatar" width={18} height={18} />
+                            )}
+                          </div>
+                        );
+                      })()}
+                      <span className="font-medium text-xs">{p.name} ({p.matches})</span>
                       {busyMap[p.id] ? (
                         <span className="ml-2 text-xs px-2 py-0.5 rounded bg-yellow-100 text-yellow-800">คอร์ท {busyMap[p.id]}</span>
                       ) : null}
                       {queuedMap[p.id] ? (
                         <span className="ml-2 text-xs px-2 py-0.5 rounded bg-gray-100 text-gray-800">คิว {queuedMap[p.id]}</span>
                       ) : null}
-                      <span className={`ml-2 text-xs px-2 py-0.5 rounded border ${manualSelectedEffective.includes(p.id) ? 'bg-blue-400 text-white border-blue-300' : 'bg-gray-100 text-gray-700 border-gray-200'}`}>{p.level}</span>
-                      <span className={`ml-2 text-xs px-2 py-0.5 rounded border ${manualSelectedEffective.includes(p.id) ? 'bg-blue-400 text-white border-blue-300' : 'bg-gray-100 text-gray-700 border-gray-200'}`}>{p.gender === 'Male' ? 'ชาย' : 'หญิง'}</span>
                     </span>
                   </label>
                 ))}
@@ -263,7 +294,7 @@ function NextQueue(props) {
           >
             <div>
               <div className="mb-2 flex items-center justify-between">
-                <div className="font-semibold">แมตช์ที่ #{idx + 1}</div>
+                <div className="font-semibold">คิวที่ #{idx + 1}</div>
                 {group && availableCourtsEffective.length === 0 && (
                   <div className="text-gray-400 text-sm">รอคอร์ทว่าง</div>
                 )}
@@ -336,7 +367,7 @@ function NextQueue(props) {
           >
             <div>
               <div className="mb-2 flex items-center justify-between">
-                <div className="font-semibold text-blue-700">แมตช์ (จัดเอง Manual)</div>
+                <div className="font-semibold text-blue-700">แมตช์ (จัดเอง)</div>
                 {group && availableCourtsEffective.length === 0 && (
                   <div className="text-gray-400 text-sm">รอคอร์ทว่าง</div>
                 )}

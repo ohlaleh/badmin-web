@@ -103,13 +103,13 @@ export default function CourtStatus({ courts = [], onFinish = () => {}, onRollba
                       className="px-3 py-1 rounded bg-indigo-600 text-white text-sm hover:bg-indigo-700 transition-colors duration-150"
                       onClick={() => onFinish(c.id, true)}
                       >
-                      เสร็จสิ้น
+                      จบเกมส์
                     </button>
                     <button
                       className="px-3 py-1 rounded bg-red-100 text-red-700 text-sm hover:bg-red-200 transition-colors duration-150"
                       onClick={() => openRollback(c)}
                     >
-                      ย้อนกลับ
+                      ยกเลิก
                     </button>
                   </div>
                 ) : null}

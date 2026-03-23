@@ -345,7 +345,7 @@ export default function PlayerList({ players, nextQueue = [], courts = [], onAdd
                     </span>
 
                     <div className={`inline-flex items-center gap-2 px-2 py-0.5 rounded-full font-medium ${nameBgClass} max-w-48 overflow-hidden`}>
-                      <span className="text-sm truncate block">{p?.name ?? 'ไม่ระบุชื่อ'}</span>
+                      <span className="text-sm truncate block">{p?.name ?? 'ไม่ระบุชื่อ'} (หยุดเล่น)</span>
                       <span title={status.title} className={`inline-flex items-center justify-center text-[10px] px-1 py-0.5 rounded bg-white text-current font-semibold ml-2 shrink-0`}>{status.code}</span>
                     </div>
                   </div>
@@ -367,15 +367,6 @@ export default function PlayerList({ players, nextQueue = [], courts = [], onAdd
                   >
                     {p?.matches ?? 0}
                   </div>
-                  <button
-  className="ml-2 p-1.5 rounded border bg-amber-50 text-amber-600 border-amber-200 hover:bg-amber-500 hover:text-white transition-colors flex items-center justify-center"
-  onClick={() => handleToggleStop(p.id)}
-  title="Activate"
->
-  <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-    <path fillRule="evenodd" d="M11.3 1.046A1 1 0 0111 2v5h4a1 1 0 01.82 1.573l-7 10A1 1 0 018 18v-5H4a1 1 0 01-.82-1.573l7-10a1 1 0 011.12-.38z" clipRule="evenodd" />
-  </svg>
-</button>
                 </div>
               </div>
             );
@@ -426,15 +417,6 @@ export default function PlayerList({ players, nextQueue = [], courts = [], onAdd
                 >
                   {p?.matches ?? 0}
                 </div>
-                <button
-                  className={`ml-2 px-2 py-1 rounded text-xs font-medium border bg-yellow-100 text-yellow-800 border-yellow-300 hover:bg-yellow-200`}
-                  onClick={() => handleToggleStop(p.id)}
-                  title={'หยุดเล่น'}
-                >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
-    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zM7 8a1 1 0 012 0v4a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v4a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
-  </svg>
-                </button>
               </div>
             </div>
           );
