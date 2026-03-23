@@ -11,10 +11,10 @@ export default function AppHeader() {
     <header className="w-full sticky top-0 z-50 bg-white/95 backdrop-blur-sm border-b shadow-sm">
       <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <Link href="/" className="text-lg font-bold">Badmin</Link>
+          <Link href="/" className="text-lg font-bold">Badmin Q</Link>
           <nav className="hidden sm:flex items-center gap-2 text-sm text-gray-600">
-            <Link href="/" className="px-2 py-1 hover:bg-gray-100 rounded">Home</Link>
-            <Link href="/player-manage" className="px-2 py-1 hover:bg-gray-100 rounded">Player Management</Link>
+            <Link href="/" className="px-2 py-1 hover:bg-gray-100 rounded">หน้าหลัก</Link>
+            <Link href="/player-manage" className="px-2 py-1 hover:bg-gray-100 rounded">ผู้เล่น</Link>
           </nav>
         </div>
         <div className="flex items-center gap-3">

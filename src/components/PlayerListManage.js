@@ -139,13 +139,13 @@ export default function PlayerListManage() {
   return (
     <div className="max-w-4xl mx-auto p-4">
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-2xl font-bold">Player Management</h1>
+        <h1 className="text-2xl font-bold">จัดการผู้เล่น</h1>
         <div>
-          <button onClick={openCreate} className="px-3 py-2 bg-blue-600 text-white rounded">New Player</button>
+          <button onClick={openCreate} className="px-3 py-2 bg-blue-600 text-white rounded">ผู้เล่นใหม่</button>
         </div>
       </div>
 
-      {loading && <div>Loading...</div>}
+      {loading && <div>กำลังโหลด...</div>}
       {error && <div className="text-red-600">{error}</div>}
 
       <div className="mb-3">
@@ -163,14 +163,14 @@ export default function PlayerListManage() {
           <thead className="bg-gray-50">
             <tr>
               <th className="p-3 text-sm">#</th>
-              <th className="p-3 text-sm">Name</th>
-              <th className="p-3 text-sm">Gender</th>
-              <th className="p-3 text-sm">Level</th>
-              <th className="p-3 text-sm">Matches</th>
-              <th className="p-3 text-sm">Last Round</th>
-              <th className="p-3 text-sm">Status</th>
-              <th className="p-3 text-sm">Teammates</th>
-              <th className="p-3 text-sm">Actions</th>
+              <th className="p-3 text-sm">ชื่อ</th>
+              <th className="p-3 text-sm">เพศ</th>
+              <th className="p-3 text-sm">ระดับ</th>
+              <th className="p-3 text-sm">จำนวนแมตช์</th>
+              <th className="p-3 text-sm">รอบล่าสุด</th>
+              <th className="p-3 text-sm">สถานะ</th>
+              <th className="p-3 text-sm">เพื่อนร่วมทีม</th>
+              <th className="p-3 text-sm">การดำเนินการ</th>
             </tr>
           </thead>
           <tbody>
@@ -181,21 +181,21 @@ export default function PlayerListManage() {
                   <div className="relative inline-flex items-center justify-center w-8 h-8 rounded-full">
                     <div className={`w-full h-full flex items-center justify-center rounded-full overflow-hidden ${getLevelClasses(p).dotClass} text-white`}>
                       {p.avatar ? (
-                        <Image src={p.avatar} alt={p.name || 'avatar'} width={20} height={20} className="w-4 h-4 rounded-full object-contain" />
+                        <Image src={p.avatar} alt={p.name || 'รูปประจำตัว'} width={20} height={20} className="w-4 h-4 rounded-full object-contain" />
                       ) : (
-                        <Image src={`/avatars/${String(p?.gender || 'male').toLowerCase() === 'female' ? 'female' : 'male'}.svg`} alt="avatar" width={20} height={20} className="w-4 h-4 object-contain" />
+                        <Image src={`/avatars/${String(p?.gender || 'male').toLowerCase() === 'female' ? 'female' : 'male'}.svg`} alt="รูปประจำตัว" width={20} height={20} className="w-4 h-4 object-contain" />
                       )}
                     </div>
                     <span className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full ring-2 ring-white ${getLevelClasses(p).dotClass}`} />
                   </div>
                   <div>
                     <div className="font-medium">{p.name}</div>
-                    <div className="text-xs text-gray-500">matches: {p.matches ?? 0}</div>
+                    <div className="text-xs text-gray-500">แมตช์: {p.matches ?? 0}</div>
                   </div>
                 </td>
                 <td className="p-3 align-middle text-sm">
                   <span className={`inline-block text-xs px-2 py-0.5 rounded-full font-medium ${getLevelClasses(p).nameBgClass}`}>
-                    {p.gender}
+                    {p.gender === 'Male' ? 'ชาย' : (p.gender === 'Female' ? 'หญิง' : p.gender)}
                   </span>
                 </td>
                 <td className="p-3 align-middle text-sm">{p.level}</td>
@@ -205,8 +205,8 @@ export default function PlayerListManage() {
                 <td className="p-3 align-middle text-sm">{p.teammates ? Object.keys(p.teammates).length : 0}</td>
                 <td className="p-3 align-middle text-sm">
                   <div className="flex gap-2">
-                    <button onClick={() => openEdit(p)} className="px-2 py-1 bg-yellow-400 text-black rounded text-sm">Edit</button>
-                    <button onClick={() => deletePlayer(p)} className="px-2 py-1 bg-red-500 text-white rounded text-sm">Delete</button>
+                    <button onClick={() => openEdit(p)} className="px-2 py-1 bg-yellow-400 text-black rounded text-sm">แก้ไข</button>
+                    <button onClick={() => deletePlayer(p)} className="px-2 py-1 bg-red-500 text-white rounded text-sm">ลบ</button>
                   </div>
                 </td>
               </tr>
@@ -220,21 +220,21 @@ export default function PlayerListManage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
           <div className="fixed inset-0 bg-black/40" onClick={() => setShowForm(false)} />
           <form onSubmit={submitForm} className="relative bg-white rounded p-6 shadow max-w-md w-full" onClick={e => e.stopPropagation()}>
-            <h2 className="text-lg font-semibold mb-3">{editing ? 'Edit Player' : 'New Player'}</h2>
+            <h2 className="text-lg font-semibold mb-3">{editing ? 'แก้ไขผู้เล่น' : 'ผู้เล่นใหม่'}</h2>
             <div className="mb-2">
-              <label className="block text-sm text-gray-700">Name</label>
+              <label className="block text-sm text-gray-700">ชื่อ</label>
               <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className="w-full border px-2 py-1 rounded" />
             </div>
             <div className="mb-2 grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-sm text-gray-700">Gender</label>
+                <label className="block text-sm text-gray-700">เพศ</label>
                 <select value={form.gender} onChange={e => setForm(f => ({ ...f, gender: e.target.value }))} className="w-full border px-2 py-1 rounded">
-                  <option>Male</option>
-                  <option>Female</option>
+                  <option value="Male">ชาย</option>
+                  <option value="Female">หญิง</option>
                 </select>
               </div>
               <div>
-                <label className="block text-sm text-gray-700">Level</label>
+                <label className="block text-sm text-gray-700">ระดับ</label>
                 <select value={form.level} onChange={e => setForm(f => ({ ...f, level: e.target.value }))} className="w-full border px-2 py-1 rounded">
                   <option value="N-">N-</option>
                   <option value="N">N</option>
@@ -245,29 +245,29 @@ export default function PlayerListManage() {
             </div>
             <div className="mb-2 grid grid-cols-3 gap-3">
               <div>
-                <label className="block text-sm text-gray-700">Matches</label>
+                <label className="block text-sm text-gray-700">จำนวนแมตช์</label>
                 <input type="number" value={form.matches} onChange={e => setForm(f => ({ ...f, matches: Number(e.target.value) }))} className="w-full border px-2 py-1 rounded" />
               </div>
               <div>
-                <label className="block text-sm text-gray-700">Last Played Round</label>
+                <label className="block text-sm text-gray-700">รอบล่าสุดที่เล่น</label>
                 <input type="number" value={form.last_played_round} onChange={e => setForm(f => ({ ...f, last_played_round: Number(e.target.value) }))} className="w-full border px-2 py-1 rounded" />
               </div>
               <div>
-                <label className="block text-sm text-gray-700">Play Status</label>
+                <label className="block text-sm text-gray-700">สถานะการเล่น</label>
                 <select value={form.play_status} onChange={e => setForm(f => ({ ...f, play_status: e.target.value }))} className="w-full border px-2 py-1 rounded">
-                  <option value="active">active</option>
-                  <option value="stopped">stopped</option>
+                  <option value="active">ปกติ</option>
+                  <option value="stopped">หยุดชั่วคราว</option>
                 </select>
               </div>
             </div>
             <div className="mb-2">
-              <label className="block text-sm text-gray-700">Teammates (JSON object)</label>
+              <label className="block text-sm text-gray-700">เพื่อนร่วมทีม (ออบเจ็กต์ JSON)</label>
               <textarea value={typeof form.teammates === 'string' ? form.teammates : JSON.stringify(form.teammates || {})} onChange={e => setForm(f => ({ ...f, teammates: e.target.value }))} placeholder='{"123":1, "456":2}' className="w-full border px-2 py-1 rounded h-24" />
-              <div className="text-xs text-gray-400 mt-1">Provide teammates as a JSON object mapping playerId to count. Example: {"{\"123\":1}"}</div>
+              <div className="text-xs text-gray-400 mt-1">ระบุเพื่อนร่วมทีมเป็นออบเจ็กต์ JSON ที่แมป playerId ไปยังจำนวน ตัวอย่าง: {'{"123":1}'}</div>
             </div>
             <div className="flex justify-end gap-2 mt-4">
-              <button type="button" onClick={() => setShowForm(false)} className="px-3 py-1 border rounded">Cancel</button>
-              <button type="submit" className="px-3 py-1 bg-blue-600 text-white rounded">Save</button>
+              <button type="button" onClick={() => setShowForm(false)} className="px-3 py-1 border rounded">ยกเลิก</button>
+              <button type="submit" className="px-3 py-1 bg-blue-600 text-white rounded">บันทึก</button>
             </div>
           </form>
         </div>
