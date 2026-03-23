@@ -1,0 +1,70 @@
+openapi: 3.0.0
+info:
+  title: Badmin API (sample)
+  version: '1.0'
+paths:
+  /api/players:
+    get:
+      summary: List players
+      responses:
+        '200':
+          description: OK
+    post:
+      summary: Create player
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                level:
+                  type: integer
+                gender:
+                  type: string
+      responses:
+        '201':
+          description: Created
+  /api/matches:
+    get:
+      summary: List matches
+    post:
+      summary: Create match
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                round:
+                  type: integer
+                court_id:
+                  type: integer
+                player_ids:
+                  type: array
+                  items:
+                    type: integer
+      responses:
+        '201':
+          description: Created
+  /api/queues/generate:
+    post:
+      summary: Generate queue
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                rules_strict:
+                  type: boolean
+                cooldown:
+                  type: integer
+                next_show:
+                  type: integer
+      responses:
+        '200':
+          description: OK
