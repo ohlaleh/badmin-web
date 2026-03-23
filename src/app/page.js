@@ -368,10 +368,10 @@ export default function Page() {
     (async () => {
       try {
         const payload = {
-          round,
+          round: 1,
           court_id: courtId,
           player_ids: updatedGroup.map(p => p.id),
-          result: 'provisional',
+          result: 'playing',
           provisional: true,
         };
 
