@@ -120,7 +120,7 @@ export default function AppHeader() {
             </span>
           </div>
 
-          <div className="h-8 w-[1px] bg-gray-100 hidden sm:block mx-1" />
+          <div className="h-8 w-px bg-gray-100 hidden sm:block mx-1" />
 
           {/* Reset Button */}
           <button
