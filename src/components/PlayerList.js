@@ -7,7 +7,6 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8000';
 
 export default function PlayerList({ players, nextQueue = [], courts = [], loadPlayers, generateNextQueue }) {
   const [q, setQ] = useState("");
-  const [showAddModal, setShowAddModal] = useState(false);
 
   // --- Logic: การจัดการสถานะหยุดเล่น (Toggle Play Status) ---
   async function handleToggleStop(playerId, currentStatus) {
@@ -88,14 +87,6 @@ export default function PlayerList({ players, nextQueue = [], courts = [], loadP
             </span>
           </h2>
         </div>
-        <button
-          onClick={() => setShowAddModal(true)}
-          className="p-2 rounded-xl bg-gray-50 text-gray-400 hover:bg-indigo-50 hover:text-indigo-600 transition-all"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
-            <path d="M8 9a3 3 0 100-6 3 3 0 000 6zM8 11a6 6 0 016 6H2a6 6 0 016-6zM16 7a1 1 0 10-2 0v1h-1a1 1 0 100 2h1v1a1 1 0 102 0v-1h1a1 1 0 100-2h-1V7z" />
-          </svg>
-        </button>
       </div>
 
       {/* Search */}

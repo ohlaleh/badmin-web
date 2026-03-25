@@ -21,7 +21,9 @@ export default function PlayerListManage() {
     matches: 0, 
     last_played_round: -10, 
     play_status: 'active', 
-    teammates: {} 
+    teammates: {},
+    pairing_policy: 0,
+    restricted_player_ids: {},
   })
   const [filter, setFilter] = useState('')
 
@@ -49,7 +51,7 @@ export default function PlayerListManage() {
 
   function openCreate() {
     setEditing(null)
-    setForm({ name: '', gender: 'Male', level: 'N-', matches: 0, last_played_round: -1, play_status: 'active', teammates: {} })
+    setForm({ name: '', gender: 'Male', level: 'N-', matches: 0, last_played_round: -1, play_status: 'active', teammates: {}, pairing_policy: 0, restricted_player_ids: {} })
     setShowForm(true)
   }
 
@@ -63,6 +65,8 @@ export default function PlayerListManage() {
       last_played_round: Number(p.last_played_round ?? -1),
       play_status: p.play_status || 'active',
       teammates: (p.teammates && typeof p.teammates === 'object') ? p.teammates : {},
+      pairing_policy: typeof p.pairing_policy === 'number' ? p.pairing_policy : 0,
+      restricted_player_ids: (p.restricted_player_ids && typeof p.restricted_player_ids === 'object') ? p.restricted_player_ids : {},
     })
     setShowForm(true)
   }
@@ -82,13 +86,27 @@ export default function PlayerListManage() {
     } else {
       finalTeammates = form.teammates
     }
+    // 2. Validate JSON สำหรับ restricted_player_ids
+    let finalRestricted = {}
+    if (typeof form.restricted_player_ids === 'string') {
+      try {
+        finalRestricted = JSON.parse(form.restricted_player_ids || '{}')
+      } catch (err) {
+        alert('รูปแบบ JSON Restricted Player IDs ไม่ถูกต้อง (ตรวจสอบเครื่องหมายคำพูด หรือวงเล็บ)')
+        return
+      }
+    } else {
+      finalRestricted = form.restricted_player_ids
+    }
 
     try {
       const payload = {
         ...form,
         matches: Number(form.matches),
         last_played_round: Number(form.last_played_round),
-        teammates: finalTeammates
+        teammates: finalTeammates,
+        pairing_policy: Number(form.pairing_policy),
+        restricted_player_ids: finalRestricted,
       }
 
       const url = editing ? `${API_BASE}/api/players/${editing.id}` : `${API_BASE}/api/players`
@@ -138,12 +156,12 @@ export default function PlayerListManage() {
         </div>
         <button 
           onClick={openCreate} 
-          className="flex items-center justify-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl transition-all shadow-lg shadow-indigo-200"
+          className="flex items-center justify-center gap-2 px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-lg transition-all shadow-md shadow-indigo-100"
         >
-          <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
+          <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
             <path d="M8 9a3 3 0 100-6 3 3 0 000 6zM8 11a6 6 0 016 6H2a6 6 0 016-6zM16 7a1 1 0 10-2 0v1h-1a1 1 0 100 2h1v1a1 1 0 102 0v-1h1a1 1 0 100-2h-1V7z" />
           </svg>
-          เพิ่มผู้เล่นใหม่
+          เพิ่มผู้เล่น
         </button>
       </div>
 
@@ -222,13 +240,13 @@ export default function PlayerListManage() {
                   </td>
                   <td className="p-4">
                     <div className="flex gap-2">
-                      <button onClick={() => openEdit(p)} className="p-2 text-amber-600 hover:bg-amber-50 rounded-lg transition-colors">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
+                      <button onClick={() => openEdit(p)} className="p-1.5 text-xs text-amber-600 hover:bg-amber-50 rounded-lg transition-colors">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
                           <path d="M13.586 3.586a2 2 0 112.828 2.828l-.793.793-2.828-2.828.793-.793zM11.379 5.793L3 14.172V17h2.828l8.38-8.379-2.83-2.828z" />
                         </svg>
                       </button>
-                      <button onClick={() => deletePlayer(p)} className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" viewBox="0 0 20 20" fill="currentColor">
+                      <button onClick={() => deletePlayer(p)} className="p-1.5 text-xs text-rose-600 hover:bg-rose-50 rounded-lg transition-colors">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 20 20" fill="currentColor">
                           <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
                         </svg>
                       </button>
@@ -247,7 +265,7 @@ export default function PlayerListManage() {
           <div className="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" onClick={() => setShowForm(false)} />
           <form 
             onSubmit={submitForm} 
-            className="relative bg-white rounded-3xl shadow-2xl max-w-lg w-full overflow-hidden animate-in fade-in zoom-in duration-200"
+            className="relative bg-white rounded-3xl shadow-2xl max-w-lg w-full overflow-hidden animate-in fade-in zoom-in duration-200 max-h-[90vh] flex flex-col"
           >
             <div className="p-6 border-b border-gray-100 flex justify-between items-center">
               <h2 className="text-xl font-black text-gray-800">{editing ? 'แก้ไขข้อมูลผู้เล่น' : 'เพิ่มผู้เล่นใหม่'}</h2>
@@ -258,23 +276,23 @@ export default function PlayerListManage() {
               </button>
             </div>
 
-            <div className="p-6 space-y-4">
+            <div className="p-6 space-y-4 overflow-y-auto flex-1">
               <div>
                 <label className="block text-xs font-bold text-gray-400 uppercase mb-1">ชื่อผู้เล่น</label>
-                <input required value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className="w-full border-gray-200 border rounded-xl px-4 py-2 outline-none focus:ring-2 focus:ring-indigo-500" />
+                <input required value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} className="w-full border-gray-200 border rounded-xl px-3 py-1.5 text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-gray-400 uppercase mb-1">เพศ</label>
-                  <select value={form.gender} onChange={e => setForm(f => ({ ...f, gender: e.target.value }))} className="w-full border-gray-200 border rounded-xl px-4 py-2 outline-none focus:ring-2 focus:ring-indigo-500">
+                  <select value={form.gender} onChange={e => setForm(f => ({ ...f, gender: e.target.value }))} className="w-full border-gray-200 border rounded-xl px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-indigo-500">
                     <option value="Male">ชาย</option>
                     <option value="Female">หญิง</option>
                   </select>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-gray-400 uppercase mb-1">ระดับฝีมือ</label>
-                  <select value={form.level} onChange={e => setForm(f => ({ ...f, level: e.target.value }))} className="w-full border-gray-200 border rounded-xl px-4 py-2 outline-none focus:ring-2 focus:ring-indigo-500">
+                  <select value={form.level} onChange={e => setForm(f => ({ ...f, level: e.target.value }))} className="w-full border-gray-200 border rounded-xl px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-indigo-500">
                     <option value="N-">N- (เริ่มต้น)</option>
                     <option value="N">N (ทั่วไป)</option>
                     <option value="S">S (เก่ง)</option>
@@ -286,15 +304,15 @@ export default function PlayerListManage() {
               <div className="grid grid-cols-3 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-gray-400 uppercase mb-1">แมตช์รวม</label>
-                  <input type="number" value={form.matches} onChange={e => setForm(f => ({ ...f, matches: e.target.value }))} className="w-full border-gray-200 border rounded-xl px-4 py-2 outline-none" />
+                  <input type="number" value={form.matches} onChange={e => setForm(f => ({ ...f, matches: e.target.value }))} className="w-full border-gray-200 border rounded-xl px-3 py-1.5 text-sm outline-none" />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-gray-400 uppercase mb-1">รอบล่าสุด</label>
-                  <input type="number" value={form.last_played_round} onChange={e => setForm(f => ({ ...f, last_played_round: e.target.value }))} className="w-full border-gray-200 border rounded-xl px-4 py-2 outline-none" />
+                  <input type="number" value={form.last_played_round} onChange={e => setForm(f => ({ ...f, last_played_round: e.target.value }))} className="w-full border-gray-200 border rounded-xl px-3 py-1.5 text-sm outline-none" />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-gray-400 uppercase mb-1">สถานะ</label>
-                  <select value={form.play_status} onChange={e => setForm(f => ({ ...f, play_status: e.target.value }))} className="w-full border-gray-200 border rounded-xl px-4 py-2 outline-none">
+                  <select value={form.play_status} onChange={e => setForm(f => ({ ...f, play_status: e.target.value }))} className="w-full border-gray-200 border rounded-xl px-2 py-1 text-xs outline-none">
                     <option value="active">ปกติ</option>
                     <option value="stopped">หยุดเล่น</option>
                   </select>
@@ -307,15 +325,52 @@ export default function PlayerListManage() {
                   value={typeof form.teammates === 'string' ? form.teammates : JSON.stringify(form.teammates)} 
                   onChange={e => setForm(f => ({ ...f, teammates: e.target.value }))} 
                   placeholder='{"12": 1, "45": 2}'
-                  className="w-full border-gray-200 border rounded-xl px-4 py-2 text-xs font-mono h-24 outline-none focus:ring-2 focus:ring-indigo-500" 
+                  className="w-full border-gray-200 border rounded-xl px-3 py-1.5 text-xs font-mono h-20 outline-none focus:ring-2 focus:ring-indigo-500" 
                 />
+              </div>
+              {/* Pairing Policy */}
+              <div>
+                <label className="block text-xs font-bold text-gray-400 uppercase mb-1">นโยบายการจับคู่</label>
+                <select value={form.pairing_policy} onChange={e => setForm(f => ({ ...f, pairing_policy: Number(e.target.value) }))} className="w-full border-gray-200 border rounded-xl px-2 py-1 text-xs outline-none focus:ring-2 focus:ring-indigo-500">
+                  <option value={0}>ทั่วไป</option>
+                  <option value={1}>ล็อคคู่</option>
+                  <option value={2}>แบนคู่</option>
+                </select>
+              </div>
+              {/* Restricted Player IDs (Checkboxes) */}
+              <div>
+                <label className="block text-xs font-bold text-gray-400 uppercase mb-1">เลือกผู้เล่นสำหรับล็อคคู่/แบนคู่</label>
+                <div className="grid grid-cols-2 gap-2 max-h-32 overflow-y-auto border rounded-xl p-2 bg-gray-50 text-xs">
+                  {players.map(p => (
+                    <label key={p.id} className="flex items-center gap-2 text-xs font-medium cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={!!form.restricted_player_ids[p.id]}
+                        onChange={e => {
+                          setForm(f => {
+                            const obj = { ...(f.restricted_player_ids || {}) }
+                            if (e.target.checked) {
+                              obj[p.id] = true
+                            } else {
+                              delete obj[p.id]
+                            }
+                            return { ...f, restricted_player_ids: obj }
+                          })
+                        }}
+                        className="accent-indigo-500"
+                      />
+                      {p.name} ({p.gender === 'Male' ? 'ชาย' : 'หญิง'})
+                    </label>
+                  ))}
+                </div>
+                <div className="text-xs text-gray-400 mt-1">แตะเลือกได้หลายคน</div>
               </div>
             </div>
 
             <div className="p-6 bg-gray-50 flex justify-end gap-3">
-              <button type="button" onClick={() => setShowForm(false)} className="px-6 py-2 text-gray-500 font-bold hover:text-gray-700 transition-colors">ยกเลิก</button>
-              <button type="submit" className="px-8 py-2 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 shadow-lg shadow-indigo-100 transition-all">
-                บันทึกข้อมูล
+              <button type="button" onClick={() => setShowForm(false)} className="px-3 py-1.5 text-xs text-gray-500 font-bold rounded-lg hover:text-gray-700 transition-colors">ยกเลิก</button>
+              <button type="submit" className="px-4 py-1.5 text-xs bg-indigo-600 text-white font-bold rounded-lg hover:bg-indigo-700 shadow-md shadow-indigo-100 transition-all">
+                บันทึก
               </button>
             </div>
           </form>
