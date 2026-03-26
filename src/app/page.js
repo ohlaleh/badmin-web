@@ -293,11 +293,7 @@ export default function Page() {
 
       showToast('จบแมตช์และอัปเดตสถิติเรียบร้อย', 'success');
 
-      // 5. จัดการ Assign คิวถัดไป (ถ้าไม่ใช่โหมด Manual)
-      if (!manual) {
-        // แนะนำ: รอให้ State อัปเดตเสร็จก่อน หรือดึงจากคิวที่เพิ่งได้มา
-        assignNextToCourt(courtId, 0); 
-      }
+      // 5. (Auto-assign after finish is disabled)
 
     } catch (err) {
       console.error('finishCourt error:', err);
